@@ -36,14 +36,34 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
 # ── Mode. Off by default: with no environment variable set, nothing happens. ──
+#
+# Three switches, not one scale. Shape 3 needs no API key and no network, so it
+# is usable entirely on its own — STINGRAY_SHAPE3=1 alone enables the hook and
+# blocks on shape 3 without turning on the two Jev judgements, which have their
+# own calibration bar to clear. Folding it into MODE=active would hand someone
+# who asked for the free local check the two that cost money and are not yet
+# calibrated.
+#
+# STINGRAY_SHADOW wins over both: shadow means record, never block.
 MODE="off"
-[ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
+[ "${STINGRAY_SHAPE3:-}" = "1" ] && MODE="shape3"
 [ "${STINGRAY:-}" = "1" ] && MODE="active"
+[ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
 [ "$MODE" = "off" ] && exit 0
+
+# Shape 3 may block in active (with its own flag) or in shape3-only mode.
+shape3_blocks=0
+[ "${STINGRAY_SHAPE3:-}" = "1" ] && [ "$MODE" != "shadow" ] && shape3_blocks=1
+# The Jev judgements may block only in active mode.
+jev_blocks=0
+[ "$MODE" = "active" ] && jev_blocks=1
 
 command -v jq >/dev/null 2>&1 || { echo "(stingray: unavailable — jq not found)" >&2; exit 0; }
 
 input=$(cat)
+# Read one field out of the hook payload. Returns empty on any jq failure, so
+# every caller has to treat "missing" and "unreadable" the same way — which is
+# what the fail-closed rule wants anyway.
 j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 
 # ── Loop protection ───────────────────────────────────────────────────────────
@@ -80,7 +100,10 @@ log() {   # log <shape> <score> <would_block>
 # The only exit that blocks. The reason goes to stderr because stdout does not
 # reach the model (measured, see header).
 nudge() {  # nudge <shape description>
-  echo "$((blocks + 1))" >"$count_file" 2>/dev/null
+  # If the budget cannot be recorded, do not block. An unrecorded block is an
+  # unbounded one: on a re-entry where stop_hook_active is unavailable nothing
+  # would count the rounds. Failing to write is a failure path like any other.
+  printf '%s\n' "$((blocks + 1))" >"$count_file" 2>/dev/null || exit 0
   cat >&2 <<EOF
 stingray: this turn looks like it stopped half-done ($1).
 
@@ -112,7 +135,7 @@ if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
     running=$(printf '%s' "$input" | jq '[.background_tasks[]? | select(.status=="running")] | length' 2>/dev/null)
     case "$running" in ''|*[!0-9]*) running=-1 ;; esac
     if [ "$running" = "0" ]; then
-      if [ "$MODE" = "active" ] && [ "${STINGRAY_SHAPE3:-}" = "1" ]; then
+      if [ "$shape3_blocks" = "1" ]; then
         log unwatched 1 true
         nudge "it promises to watch an external result, but nothing is running in the background"
       fi
@@ -209,7 +232,23 @@ body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
 # The question set is part of the classifier's contract, so its hash is logged
 # with every decision: changing one line of criteria moves the whole score
 # distribution, and a threshold calibrated under the old wording is void.
-qset_hash=$(printf '%s' "$body" | jq -cS '.questions' | shasum -a 256 | cut -c1-16)
+#
+# Hash questions.json, NOT the request body. The body's questions carry this
+# turn's final_text, tools and background, so hashing it yields a value that
+# differs every turn — which cannot show a criteria edit, which is the only
+# thing it exists to show.
+qset_hash=$(jq -cS . "$QUESTIONS" | shasum -a 256 | cut -c1-16)
+
+# The request carries Authorization: Bearer $KEY. Plain HTTP is allowed only to
+# loopback, where the local test stubs live; anywhere else it would put the key
+# on the wire in cleartext. STINGRAY_ENDPOINT is how that could happen, so the
+# check sits here rather than in documentation.
+case "$ENDPOINT" in
+  https://*) ;;
+  http://127.0.0.1[:/]*|http://localhost[:/]*|http://[::1][:/]*|http://127.0.0.1|http://localhost) ;;
+  *) echo "(stingray: refusing to send credentials to a non-HTTPS, non-loopback endpoint)" >&2
+     exit 0 ;;
+esac
 
 out=$(mktemp) || exit 0
 trap 'rm -f "$out"' EXIT
@@ -232,7 +271,7 @@ score=$(awk -v a="$na" -v b="$bp" 'BEGIN{print (a>b?a:b)}')
 
 [ -n "$fired" ] || { log none "$score" false; exit 0; }
 
-if [ "$MODE" = "active" ]; then
+if [ "$jev_blocks" = "1" ]; then
   log "$fired" "$score" true
   case "$fired" in
     no_action)       nudge "this turn did nothing at all" ;;

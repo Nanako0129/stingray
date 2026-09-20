@@ -15,9 +15,9 @@ trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
 # stdin the way the harness really sends it, measured on v2.1.278.
-mk() {  # mk <last_assistant_message> <background_tasks json> [extra jq]
-  jq -cn --arg msg "$1" --argjson bg "$2" '{
-    session_id: "test-session-0001",
+mk() {  # mk <last_assistant_message> <background_tasks json> [session-id]
+  jq -cn --arg msg "$1" --argjson bg "$2" --arg sid "${3:-test-session-0001}" '{
+    session_id: $sid,
     prompt_id: "11111111-2222-3333-4444-555555555555",
     transcript_path: "/nonexistent/transcript.jsonl",
     cwd: "/tmp",
@@ -30,7 +30,10 @@ mk() {  # mk <last_assistant_message> <background_tasks json> [extra jq]
   }'
 }
 
-check() {  # check <name> <stdin> <want_exit> <want_stderr_substr|-> <env...>
+# Run one case against the real hook and assert on what was observed, never on
+# the source. check <name> <stdin> <want_exit> <want_stderr_substr|-> <env...>;
+# pass "-" to require stderr to be empty.
+check() {
   local name="$1" stdin="$2" want="$3" want_err="$4"; shift 4
   local err rc
   err="$TMP/err.$$"
@@ -79,7 +82,7 @@ check "4  no key again → silent, still passes" "$(mk "$WATCH_PLAIN" '[]')" 0 "
   STINGRAY_SHADOW=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
 
 # 5. Active plus shape 3's own flag: this is the only configuration that blocks.
-check "5  active + SHAPE3 flag → block" "$(mk "$WATCH_PLAIN" '[]')" 2 "nothing is running" \
+check "5  active + SHAPE3 flag → block" "$(mk "$WATCH_PLAIN" '[]' sess-block-5)" 2 "nothing is running" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
 # 6. Active WITHOUT shape 3's flag: shape 3 must not ride in on the Jev gate.
@@ -89,7 +92,7 @@ check "6  active without SHAPE3 flag → pass" "$(mk "$WATCH_PLAIN" '[]')" 0 "-"
 # 7. The redaction trap. Shape 3's regex must run on the RAW message. Here the
 #    declaration shares its line with a path, which redaction drops whole — so
 #    an implementation that matched on redacted text finds nothing and fails.
-check "7  declaration on a path line → still fires" "$(mk "$WATCH_PATH" '[]')" 2 "nothing is running" \
+check "7  declaration on a path line → still fires" "$(mk "$WATCH_PATH" '[]' sess-block-7)" 2 "nothing is running" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
 # 8. Negative: something IS running, so the promise is kept.
@@ -105,6 +108,19 @@ check "9  background_tasks key absent → pass" \
 # 10. No monitoring claim at all: shape 3 is silent.
 check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]')" 0 "-" \
   STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 13. Shape 3 standalone. It needs no API key and no network, so STINGRAY_SHAPE3
+#     alone must enable the hook and block — without switching on the two Jev
+#     judgements, which have their own calibration bar. CodeRabbit proposed
+#     fixing the original gap by setting MODE=active from this flag; that would
+#     have handed a user who asked for the free local check the two that cost
+#     money and are not yet calibrated.
+check "13 SHAPE3 alone → block" "$(mk "$WATCH_PLAIN" '[]' sess-block-13)" 2 "nothing is running" \
+  STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+
+# 14. Shadow outranks it. Recording mode never blocks, whatever else is set.
+check "14 SHADOW + SHAPE3 → record only" "$(mk "$WATCH_PLAIN" '[]')" 0 "-" \
+  STINGRAY_SHADOW=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
 # 11. Block budget, independent of stop_hook_active. Feed the same blocking
 #     case four times with stop_hook_active pinned false, as if the harness

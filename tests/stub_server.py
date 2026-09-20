@@ -39,6 +39,7 @@ RESP_401 = (
 
 
 def ok_response(payload):
+    """Build a 200 response carrying ``payload`` as JSON."""
     body = json.dumps(payload).encode()
     return (b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
             b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
@@ -66,6 +67,7 @@ def read_request(conn):
 
 
 def serve(conn):
+    """Handle one connection according to the mode this stub was started in."""
     try:
         if mode == "record":
             body = read_request(conn)

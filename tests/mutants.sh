@@ -19,7 +19,10 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
-# mutate <name> <case-label> <python-replacement-expression-file>
+# Break the hook on purpose, then require the case that exists to catch that
+# break to fail. mutate <name> <case-label> <anchor> <replacement>: the anchor
+# must still be present in the hook, so a refactor that moves the code under
+# test fails loudly here instead of quietly disarming the mutant.
 mutate() {
   local name="$1" want_case="$2" anchor="$3" replacement="$4"
   local dir="$TMP/$name"

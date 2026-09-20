@@ -36,13 +36,18 @@ reviews:
     #        gh api repos/OWNER/NAME -q .stargazers_count
     enabled: true
 
-    # Not the default. At the default of 5, automatic review stops silently
-    # once a pull request has five reviewed commits, and a poller waiting on
-    # the verdict reads that pause as a timeout rather than as a stop.
-    # Measured: sepia#250 ran four rounds that way. 0 is the schema's
-    # documented sentinel for disabling the pause, not a large number picked
-    # by hand.
-    auto_pause_after_reviewed_commits: 0
+    # Not the default of 5. At 5, automatic review stops silently once a pull
+    # request has five reviewed commits, and a poller waiting on the verdict
+    # reads that pause as a timeout rather than as a stop; sepia#250 ran four
+    # rounds that way.
+    #
+    # 10 rather than 0, though. The pause is also the only built-in brake on
+    # the hourly review allowance, and 0 removes it. That matters more here
+    # than anywhere else: the OSS tier grants 1-10 reviews an hour scoped per
+    # repository and scaled by star count, so a repository at zero stars sits
+    # on the floor. 10 clears the longest fix loop observed here (four rounds)
+    # while staying bounded by what an hour affords.
+    auto_pause_after_reviewed_commits: 10
 
   path_instructions:
     - path: "hooks/stingray.sh"

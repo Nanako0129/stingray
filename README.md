@@ -84,6 +84,8 @@ Always set `timeout`. Claude Code's default for a hook is **600 seconds**, so an
 
 `bash`, `jq`, `curl`, `perl` — present on macOS and on any normal Linux. No SDK, no new dependency to install.
 
+`STINGRAY_ENDPOINT` accepts an HTTPS URL, or plain HTTP only to loopback where the test stubs live. The request carries `Authorization: Bearer`, so anything else would put the key on the wire in cleartext and is refused.
+
 ## API key
 
 Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3 needs no key and no network.
@@ -100,7 +102,9 @@ Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3 needs no key a
 | *(nothing set)* | **Default.** The hook exits immediately. Nothing runs, nothing is sent. |
 | `STINGRAY_SHADOW=1` | Calls Jev, writes a decision record, **never blocks**. Start here. |
 | `STINGRAY=1` | Blocks on shapes 1 and 2. |
-| `STINGRAY_SHAPE3=1` | Also blocks on shape 3. Independent of `STINGRAY` on purpose — see [Calibration](#calibration). |
+| `STINGRAY_SHAPE3=1` | Blocks on shape 3. **Usable on its own**: shape 3 needs no key and no network, so this alone enables the hook without switching on the two Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
+
+The cheapest useful configuration is `STINGRAY_SHAPE3=1` by itself: no account, no key, no request, no latency — just the check that a promise to watch something has something running behind it.
 
 Other knobs: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra names to mask), `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned — `jev-latest` would change the classifier under you).
 
@@ -163,7 +167,7 @@ Hence: off by default, `STINGRAY_SHADOW=1` as the first setting, and **two indep
 | Shapes 1 and 2 (`STINGRAY=1`) | ≥ 40 shadow records, ≥ 70% precision on your own reading, ≤ 3 wrong nudges per 100 stop points, τ placed in the empty band between the score clusters with the derivation written beside it |
 | Shape 3 (`STINGRAY_SHAPE3=1`) | ≥ 20 shadow records, ≥ 70% precision |
 
-Records land in `$STINGRAY_STATE_DIR/decisions.jsonl`, one line per decision, each carrying `qset_hash`. Editing one line of criteria moves the whole score distribution, so a threshold calibrated under the old wording is void — the hash is how you notice.
+Records land in `$STINGRAY_STATE_DIR/decisions.jsonl`, one line per decision, each carrying `qset_hash` — the hash of `questions.json`, not of the request. Editing one line of criteria moves the whole score distribution, so a threshold calibrated under the old wording is void, and a hash that changed every turn could not show you that. It hashed the request body until CodeRabbit pointed out that this made it useless for the one job it has.
 
 ## Latency
 
@@ -230,7 +234,7 @@ stingray/
 ## Tests
 
 ```bash
-./tests/acceptance.sh        # 16 cases, no key, no network
+./tests/acceptance.sh        # 18 cases, no key, no network
 ./tests/network.sh           # fail-closed paths against a local stub server
 ./tests/network.sh --live    # also the real endpoint, with synthetic text only
 ./tests/mutants.sh           # do the guards still guard?

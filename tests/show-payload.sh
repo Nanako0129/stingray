@@ -61,6 +61,7 @@ PY
 
 count=$(jq 'length' "$TMP/messages")
 echo "driving the real hook with $count of your own closing messages..."
+skipped=0
 for i in $(seq 0 $((count - 1))); do
   msg=$(jq -r ".[$i]" "$TMP/messages")
   jq -cn --arg m "$msg" --arg cwd "$PWD" '{
@@ -68,23 +69,41 @@ for i in $(seq 0 $((count - 1))); do
     transcript_path: "/nonexistent/t.jsonl", cwd: $cwd, permission_mode: "default",
     hook_event_name: "Stop", stop_hook_active: false,
     last_assistant_message: $m, background_tasks: [], session_crons: []
-  }' | ( export STINGRAY_STATE_DIR="$TMP/state" STINGRAY_SHADOW=1 \
-                TYPESAFE_API_KEY=local-stub \
-                STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
-         bash "$HOOK" >/dev/null 2>&1 )
+  }' >"$TMP/stdin.$i"
+  ( export STINGRAY_STATE_DIR="$TMP/state" STINGRAY_SHADOW=1 \
+           TYPESAFE_API_KEY=local-stub \
+           STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+    bash "$HOOK" <"$TMP/stdin.$i" >/dev/null 2>"$TMP/err.$i" )
+  rc=$?
+  # Exit status and stderr are the observable contract, so the audit asserts on
+  # them rather than discarding them. A turn that drops out silently shrinks the
+  # sample while the report still reads as complete.
+  if [ "$rc" != 0 ]; then
+    printf '  message %s: hook exited %s — %s\n' "$i" "$rc" "$(head -c 140 "$TMP/err.$i")"
+    skipped=$((skipped+1))
+  elif [ -s "$TMP/err.$i" ]; then
+    # A fail-open marker is a legitimate outcome, but it means nothing was sent
+    # for this turn, so say which turns are missing from the audit.
+    printf '  message %s: not sent — %s\n' "$i" "$(head -c 140 "$TMP/err.$i")"
+    skipped=$((skipped+1))
+  fi
 done
+[ "$skipped" -eq 0 ] || echo "($skipped of $count message(s) produced no request; they are absent from the audit below)"
 
 sent=$(wc -l <"$TMP/captured" 2>/dev/null | tr -d ' ')
 echo "captured $sent request(s)"
 [ "${sent:-0}" -gt 0 ] || { echo "nothing was sent"; exit 0; }
 
 OUT="${STINGRAY_PAYLOAD_OUT:-$PWD/payload-audit.txt}"
-jq -r '.questions | to_entries[0].value.instructions
-       | "──────────\nfinal_text:\n\(.final_text)\n\ntools: \(.tools)\nbackground: \(.background)"' \
-   "$TMP/captured" >"$OUT"
-echo "full captured payloads written to $OUT  (not tracked by git)"
+# The whole request body, pretty-printed. Not a selected field: a regression
+# that serialises file contents or tool arguments into some other key must show
+# up here, and it cannot if the report only ever prints the keys someone
+# expected to be populated.
+jq -r '"──────────", .' "$TMP/captured" >"$OUT"
+echo "full captured request bodies written to $OUT  (not tracked by git)"
 echo
-jq -r '.questions | to_entries[0].value.instructions.final_text' "$TMP/captured" >"$TMP/texts"
+# Scan every byte that was transmitted, for the same reason.
+cp "$TMP/captured" "$TMP/texts"
 python3 - "$TMP/texts" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8", errors="replace").read()

@@ -18,7 +18,14 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      # Pinned to an immutable commit SHA. A tag is mutable: retargeting v6
+      # would run attacker-controlled code in this workflow before any test
+      # step. persist-credentials is off because nothing here pushes, and a
+      # checkout that leaves a token in .git/config hands it to every later
+      # step (zizmor: artipacked).
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Tools present
         run: |
