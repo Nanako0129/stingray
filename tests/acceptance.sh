@@ -1,0 +1,143 @@
+#!/bin/bash
+# Acceptance checks for stingray. Every case drives the real hook script with a
+# real stdin payload and asserts on the observed exit code and stderr — none of
+# them inspect the source.
+#
+# Every case here is offline: no API key, no network. The network-facing
+# fail-closed paths live in network.sh.
+#
+#   ./tests/acceptance.sh
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+HOOK="$HERE/../hooks/stingray.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+pass=0; fail=0
+
+# stdin the way the harness really sends it, measured on v2.1.278.
+mk() {  # mk <last_assistant_message> <background_tasks json> [extra jq]
+  jq -cn --arg msg "$1" --argjson bg "$2" '{
+    session_id: "test-session-0001",
+    prompt_id: "11111111-2222-3333-4444-555555555555",
+    transcript_path: "/nonexistent/transcript.jsonl",
+    cwd: "/tmp",
+    permission_mode: "default",
+    hook_event_name: "Stop",
+    stop_hook_active: false,
+    last_assistant_message: $msg,
+    background_tasks: $bg,
+    session_crons: []
+  }'
+}
+
+check() {  # check <name> <stdin> <want_exit> <want_stderr_substr|-> <env...>
+  local name="$1" stdin="$2" want="$3" want_err="$4"; shift 4
+  local err rc
+  err="$TMP/err.$$"
+  ( export STINGRAY_STATE_DIR="$TMP/state"; for kv in "$@"; do export "${kv?}"; done
+    printf '%s' "$stdin" | bash "$HOOK" >/dev/null 2>"$err" )
+  rc=$?
+  local ok=1
+  [ "$rc" = "$want" ] || ok=0
+  if [ "$want_err" != "-" ] && ! grep -q "$want_err" "$err"; then ok=0; fi
+  if [ "$want_err" = "-" ] && [ -s "$err" ]; then ok=0; fi
+  if [ "$ok" = 1 ]; then
+    pass=$((pass+1)); printf '  ok    %s\n' "$name"
+  else
+    fail=$((fail+1)); printf '  FAIL  %s (exit %s, want %s)\n        stderr: %s\n' \
+      "$name" "$rc" "$want" "$(head -c 200 "$err")"
+  fi
+}
+
+WATCH_PLAIN='已經送審了，我會盯著 CodeRabbit 的結果，有動靜回報。'
+# The declaration shares its line with a relative path. Redaction drops such a
+# line whole, so this case fails against an implementation that matches on
+# redacted text. A URL here would NOT work: URLs are replaced in place, the line
+# survives, and the wrong implementation would pass. Measured, not assumed.
+WATCH_PATH='已經送審了，我會盯著 src/main.rs 的測試結果，有動靜回報。'
+NEUTRAL='這三個檔案都改好了，測試全過。'
+OFFLINE=(TYPESAFE_API_KEY= HOME="$TMP/nohome" STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable)
+
+echo "stingray acceptance — offline cases"
+
+# 1. Off by default: no env var set, nothing happens at all.
+check "1  off by default → no action" "$(mk "$WATCH_PLAIN" '[]')" 0 "-"
+
+# 2. Harness loop guard: stop_hook_active true is an immediate pass.
+check "2  stop_hook_active=true → pass" \
+  "$(mk "$WATCH_PLAIN" '[]' | jq -c '.stop_hook_active=true')" 0 "-" STINGRAY=1 STINGRAY_SHAPE3=1
+
+# 3. No key, shape-3 positive. The shape-3 branch must not fire for someone who
+#    never configured the plugin. This is the case a "bad key" test cannot catch.
+#    Behaviour is unchanged AND a visible unavailable marker is printed.
+check "3  no key + shape 3 positive → pass, marker shown" "$(mk "$WATCH_PLAIN" '[]')" 0 "no key" \
+  STINGRAY_SHADOW=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 4. Same case again, same session: the marker is printed once per session, not
+#    once per turn. Depends on case 3 having run against this state dir.
+check "4  no key again → silent, still passes" "$(mk "$WATCH_PLAIN" '[]')" 0 "-" \
+  STINGRAY_SHADOW=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 5. Active plus shape 3's own flag: this is the only configuration that blocks.
+check "5  active + SHAPE3 flag → block" "$(mk "$WATCH_PLAIN" '[]')" 2 "nothing is running" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+
+# 6. Active WITHOUT shape 3's flag: shape 3 must not ride in on the Jev gate.
+check "6  active without SHAPE3 flag → pass" "$(mk "$WATCH_PLAIN" '[]')" 0 "-" \
+  STINGRAY=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 7. The redaction trap. Shape 3's regex must run on the RAW message. Here the
+#    declaration shares its line with a path, which redaction drops whole — so
+#    an implementation that matched on redacted text finds nothing and fails.
+check "7  declaration on a path line → still fires" "$(mk "$WATCH_PATH" '[]')" 2 "nothing is running" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+
+# 8. Negative: something IS running, so the promise is kept.
+check "8  running background task → pass" \
+  "$(mk "$WATCH_PLAIN" '[{"id":"a1","type":"shell","status":"running","description":"poll","command":"gh pr checks"}]')" \
+  0 "-" STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 9. Missing background_tasks key must not be read as "nothing is running".
+check "9  background_tasks key absent → pass" \
+  "$(mk "$WATCH_PLAIN" '[]' | jq -c 'del(.background_tasks)')" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 10. No monitoring claim at all: shape 3 is silent.
+check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]')" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+
+# 11. Block budget, independent of stop_hook_active. Feed the same blocking
+#     case four times with stop_hook_active pinned false, as if the harness
+#     guard had been reset; the fourth must refuse to block.
+echo "  -- block budget --"
+BUDGET_STATE="$TMP/budget"; rm -rf "$BUDGET_STATE"
+for i in 1 2 3 4; do
+  err="$TMP/b.$i"
+  ( export STINGRAY_STATE_DIR="$BUDGET_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+    printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | bash "$HOOK" >/dev/null 2>"$err" )
+  rc=$?
+  want=2; [ "$i" = 4 ] && want=0
+  if [ "$rc" = "$want" ]; then
+    pass=$((pass+1)); printf '  ok    11.%s block #%s → exit %s\n' "$i" "$i" "$rc"
+  else
+    fail=$((fail+1)); printf '  FAIL  11.%s block #%s → exit %s, want %s\n' "$i" "$i" "$rc" "$want"
+  fi
+done
+if grep -q "block budget" "$TMP/b.4"; then
+  pass=$((pass+1)); printf '  ok    11.5 budget message printed\n'
+else
+  fail=$((fail+1)); printf '  FAIL  11.5 budget message missing: %s\n' "$(head -c 120 "$TMP/b.4")"
+fi
+
+# 12. Shadow leaves a record; that log is the only thing calibration can use.
+if [ -s "$TMP/state/decisions.jsonl" ] && \
+   jq -e 'select(.mode=="shadow" and .shape=="unwatched" and .would_block=="false")' \
+      "$TMP/state/decisions.jsonl" >/dev/null 2>&1; then
+  pass=$((pass+1)); printf '  ok    12 shadow wrote a decision record\n'
+else
+  fail=$((fail+1)); printf '  FAIL  12 no shadow record in decisions.jsonl\n'
+fi
+
+echo
+printf 'passed %d, failed %d\n' "$pass" "$fail"
+[ "$fail" = 0 ]
