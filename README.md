@@ -1,5 +1,7 @@
 # stingray
 
+**English** | [繁體中文](README.zh-TW.md)
+
 [![tests](https://github.com/Nanako0129/stingray/actions/workflows/tests.yml/badge.svg)](https://github.com/Nanako0129/stingray/actions/workflows/tests.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > A Claude Code `Stop` hook for the turn that ends half-done. It catches the three ways a turn quits early — nothing done, an announced action never carried out, a promise to watch CI with nothing polling — and blocks the stop with a nudge instead of letting the turn close on an empty promise.
@@ -58,20 +60,56 @@ stingray can add work. It can never let the model do less. Every failure is fail
 
 ## Install
 
+> **Notice:** Every command below is written for **user scope** — install once, use it in every project.
+
+### Claude Code plugin
+
 ```bash
-git clone https://github.com/Nanako0129/stingray
+# install
+claude plugin marketplace add Nanako0129/stingray
+claude plugin install stingray@stingray --scope user
+
+# update
+claude plugin marketplace update stingray
+claude plugin update stingray
+
+# uninstall
+claude plugin uninstall stingray
 ```
 
-### Claude Code
+> **Tip:** The in-session `/plugin install` dialog asks you to pick a scope — choose **User** there.
 
-Add it as a plugin, or point a `Stop` hook straight at the script in `settings.json`:
+**Installing it does nothing on its own.** The hook is off until a switch is set, which is deliberate: a plugin that starts interrupting turns the moment it lands is not something you can evaluate. Pick one and put it where your shell exports it:
+
+```bash
+# the free local check: no account, no key, no request
+export STINGRAY_SHAPE3=1
+
+# or: call Jev, write a decision record, never block. Start here if you have a key.
+export STINGRAY_SHADOW=1
+```
+
+Verify it is loaded and doing nothing yet:
+
+```bash
+claude plugin list | grep stingray
+tail -f ~/.local/state/stingray/decisions.jsonl   # nothing until shadow or active
+```
+
+### Or wire the hook by hand
+
+No plugin machinery needed — it is one script:
+
+```bash
+git clone https://github.com/Nanako0129/stingray ~/stingray
+```
 
 ```json
 {
   "hooks": {
     "Stop": [
       { "hooks": [ { "type": "command",
-                     "command": "/bin/bash /path/to/stingray/hooks/stingray.sh",
+                     "command": "/bin/bash /Users/you/stingray/hooks/stingray.sh",
                      "timeout": 10 } ] }
     ]
   }
