@@ -59,9 +59,13 @@ fi
 
 # The stub server's modes are documented in the Layout tree; a mode added
 # without updating it is the same class of drift.
-# [a-z0-9]+, not [a-z]+: a mode named 401 would otherwise be skipped silently,
-# which is the same blind spot this whole script exists to catch.
-modes=$(grep -oE '^    stub_server\.py [a-z0-9]+' "$HERE/stub_server.py" | awk '{print $2}' | sort -u | tr '\n' ' ')
+#
+# Ask the program, do not read its docstring. An earlier version scanned the
+# usage text, which is prose: a dispatch branch could be renamed or deleted
+# while the docstring stayed put, and this check would keep passing on a mode
+# that no longer exists. --list-modes prints the tuple dispatch itself uses.
+modes=$(python3 "$HERE/stub_server.py" --list-modes 2>/dev/null | tr '\n' ' ')
+[ -n "$modes" ] || { echo "  could not list stub server modes"; exit 1; }
 missing=""
 for m in $modes; do
   grep -qE "stub_server\.py .*$m" "$README" || missing="$missing $m"

@@ -21,7 +21,19 @@ import socket
 import sys
 import threading
 
+# One source of truth for the mode names, used by dispatch below and printed by
+# --list-modes. The docstring above is prose and can go stale; anything checking
+# these names must read them from here, or it is comparing one comment with
+# another.
+MODES = ("hang", "401", "record", "badscore")
+
+if sys.argv[1:2] == ["--list-modes"]:
+    print("\n".join(MODES))
+    raise SystemExit(0)
+
 mode, portfile = sys.argv[1], sys.argv[2]
+if mode not in MODES:
+    raise SystemExit(f"unknown mode {mode!r}; expected one of {', '.join(MODES)}")
 outfile = sys.argv[3] if len(sys.argv) > 3 else None
 lock = threading.Lock()
 

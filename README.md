@@ -52,7 +52,7 @@ The nudge is one fixed paragraph, not a generated critique. It offers three ways
 
 ## Friction only ever goes up
 
-Every failure path — no key, missing `jq`, missing `questions.json`, a secret spotted in the outgoing bytes, a timeout, a non-200, a malformed body, a score below threshold, an unreadable `background_tasks` — exits 0 and leaves behaviour exactly as if the plugin were not installed.
+Every failure path — no key, missing `jq`, missing `questions.json`, an endpoint that is neither HTTPS nor loopback, a secret spotted in the outgoing bytes, a timeout, a non-200, a malformed body, a score outside [0,1] or below threshold, an unreadable `background_tasks`, even a block counter that cannot be written — exits 0 and leaves behaviour exactly as if the plugin were not installed.
 
 stingray can add work. It can never let the model do less. Every failure is fail-open in the literal sense — the turn ends exactly as it would have — and that is the safe direction here, because the thing being withheld is a nudge, not a permission. That single rule is what makes the failure modes boring: there is no configuration in which a broken stingray approves something, and no outage that turns into a silent pass.
 

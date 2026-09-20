@@ -21,9 +21,14 @@
 #   · stdin carries no stop_reason / scratchpad_dir / effort (docs say it does).
 #   · hooks.json without an explicit timeout defaults to 600s.
 #
-# Friction only ever goes up. Every failure path — no key, timeout, HTTP error,
-# malformed response, low score — exits 0, leaving behaviour identical to not
-# having this plugin installed. stingray must never make the model do less.
+# Friction only ever goes up. Every failure path exits 0, leaving behaviour
+# identical to not having this plugin installed; the only exit that blocks is
+# nudge(). stingray must never make the model do less.
+#
+# The list of those paths lives in the README and is deliberately not repeated
+# here: it was repeated once, went stale in this copy while the README stayed
+# right, and a contract stated in two places is only as true as the copy nobody
+# reread.
 set -u
 
 MODEL="${STINGRAY_JEV_MODEL:-jev-1.13.0}"

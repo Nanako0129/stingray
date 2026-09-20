@@ -51,8 +51,8 @@ jobs:
       - name: Acceptance (offline)
         run: bash tests/acceptance.sh
 
-      # The stub server is local, so the fail-closed paths are covered here too.
-      - name: Fail-closed paths (local stub)
+      # The stub server is local, so the fail-open paths are covered here too.
+      - name: Fail-open paths (local stub)
         run: bash tests/network.sh
 
       # Case 7 and case 9 each exist to catch one implementation mistake. A test
