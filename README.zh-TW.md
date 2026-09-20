@@ -79,6 +79,8 @@ claude plugin uninstall stingray
 
 > **小提醒：**session 內的 `/plugin install` 對話框會問你要哪個 scope，選 **User**。
 
+> **這裡的「已驗證」是什麼意思：**manifest 與上面兩行指令都對著本機 checkout 實際跑過——marketplace 註冊成功、`plugin install` 回報成功、`plugin list` 顯示 `stingray@stingray` 在 user scope 且 enabled。在沒有 export 任何開關的情況下，餵進一筆本來會觸發形狀 3 的 payload，它 `exit 0` 且不建立任何 state 目錄，所以剛裝好的狀態確實是惰性的。`Nanako0129/stingray` 那種寫法讀的是預設分支，要等這個 PR 合併之後才能實際驗證。
+
 **光是裝好它不會做任何事。** 沒設開關之前 hook 是關的，這是刻意的：一個落地就開始打斷你的 plugin，你沒辦法評估它。挑一個，放進你 shell 會 export 的地方：
 
 ```bash
