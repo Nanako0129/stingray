@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "stingray",
+  "displayName": "stingray",
+  "version": "0.1.0",
+  "description": "Stop hook that catches a turn stopping half-done — no action taken, a declared action never carried out, or a promise to watch CI with nothing actually polling — and pushes Claude back to finish it.",
+  "author": {
+    "name": "Nanako0129",
+    "url": "https://github.com/Nanako0129"
+  },
+  "repository": "https://github.com/Nanako0129/stingray",
+  "license": "MIT",
+  "keywords": [
+    "stop-hook",
+    "follow-through",
+    "typesafe",
+    "jev",
+    "guardrail"
+  ]
+}
