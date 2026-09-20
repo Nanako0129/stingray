@@ -88,7 +88,11 @@ modes=$(printf '%s\n' "$modes_raw" | tr '\n' ' ')
 for f in $READMES; do
   missing=""
   for m in $modes; do
-    grep -qE "stub_server\.py .*(^|[^A-Za-z0-9_])$m([^A-Za-z0-9_]|$)" "$f" || missing="$missing $m"
+    # The delimiter before $m may be the space right after stub_server.py, so
+    # that space cannot also be matched literally — writing it twice made
+    # "stub_server.py hang <portfile>" report hang as missing. .* may be empty
+    # and the [^A-Za-z0-9_] that follows supplies the left boundary either way.
+    grep -qE "stub_server\.py.*[^A-Za-z0-9_]$m([^A-Za-z0-9_]|$)" "$f" || missing="$missing $m"
   done
   [ -z "$missing" ] \
     && say ok "stub server modes — $(basename "$f") lists all of: ${modes% }" \
