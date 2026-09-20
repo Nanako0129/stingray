@@ -111,7 +111,7 @@ git clone https://github.com/Nanako0129/stingray ~/stingray
   "hooks": {
     "Stop": [
       { "hooks": [ { "type": "command",
-                     "command": "/bin/bash /Users/you/stingray/hooks/stingray.sh",
+                     "command": "/bin/bash \"$HOME/stingray/hooks/stingray.sh\"",
                      "timeout": 10 } ] }
     ]
   }
@@ -122,7 +122,14 @@ git clone https://github.com/Nanako0129/stingray ~/stingray
 
 ### 需要的工具
 
-`bash`、`jq`、`curl`、`perl`——macOS 與任何一般的 Linux 都有。無 SDK，不用裝任何新相依。
+`bash`、`curl`、`perl` 是 macOS 與任何一般 Linux 都內建的。**`jq` 在 macOS 不是內建的**，而 hook 沒有它會直接 exit 0 並印出 `(stingray: unavailable — jq not found)`：
+
+```bash
+command -v jq || brew install jq      # macOS
+command -v jq || sudo apt install jq  # Debian／Ubuntu
+```
+
+無 SDK，其餘不用裝任何東西。
 
 `STINGRAY_ENDPOINT` 接受 HTTPS URL，或只對 loopback 接受純 HTTP（測試 stub 住在那裡）。請求帶著 `Authorization: Bearer`，其他情況會讓 key 以明文上線路，所以一律拒送。
 

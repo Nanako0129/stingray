@@ -25,14 +25,16 @@ pass=0; fail=0
 say() { if [ "$1" = ok ]; then pass=$((pass+1)); printf '  ok    %s\n' "$2";
         else fail=$((fail+1)); printf '  FAIL  %s\n' "$2"; fi; }
 
-total() {  # total <suite> -> the number it reports as passed
-  bash "$HERE/$1" 2>/dev/null | sed -n 's/^passed \([0-9]*\),.*/\1/p' | tail -1
+total() {  # total <output> -> the number that run reported as passed
+  printf '%s\n' "$1" | sed -n 's/^passed \([0-9]*\),.*/\1/p' | tail -1
 }
 
 echo "stingray README count checks"
 
-acc=$(total acceptance.sh)
-mut=$(total mutants.sh)
+acc_out=$(bash "$HERE/acceptance.sh" 2>/dev/null)
+mut_out=$(bash "$HERE/mutants.sh" 2>/dev/null)
+acc=$(total "$acc_out")
+mut=$(total "$mut_out")
 [ -n "$acc" ] && [ -n "$mut" ] || { echo "  could not read suite totals"; exit 1; }
 
 # Assert one numeric claim in every README.
@@ -59,7 +61,9 @@ claim "mutant count"              "$mut" '[（(][0-9]+ (mutants|個 mutant)[）)
 
 # The mutant list names the acceptance cases it re-derives; those names have to
 # be the ones mutants.sh actually targets, not a list someone forgot to extend.
-targeted=$(grep -oE '^mutate "[^"]+" "[0-9]+' "$HERE/mutants.sh" | grep -oE '[0-9]+$' | sort -n | tr '\n' ' ')
+targeted=$(printf '%s\n' "$mut_out" \
+  | sed -n 's/.*case \([0-9]*\) *fails, as it must.*/\1/p' | sort -n | tr '\n' ' ')
+[ -n "$targeted" ] || { echo "  mutants.sh reported no cases; cannot compare"; exit 1; }
 for f in $READMES; do
   listed=$(grep -oE '(re-derives that cases|重新推導案例) [0-9, and、和]+' "$f" | grep -oE '[0-9]+' | sort -n | tr '\n' ' ')
   if [ "$listed" = "$targeted" ]; then
@@ -76,12 +80,15 @@ done
 # usage text, which is prose: a dispatch branch could be renamed or deleted
 # while the docstring stayed put, and this check would keep passing on a mode
 # that no longer exists. --list-modes prints the tuple dispatch itself uses.
-modes=$(python3 "$HERE/stub_server.py" --list-modes 2>/dev/null | tr '\n' ' ')
-[ -n "$modes" ] || { echo "  could not list stub server modes"; exit 1; }
+if ! modes_raw=$(python3 "$HERE/stub_server.py" --list-modes 2>/dev/null); then
+  echo "  stub_server.py --list-modes exited non-zero"; exit 1
+fi
+modes=$(printf '%s\n' "$modes_raw" | tr '\n' ' ')
+[ -n "${modes// /}" ] || { echo "  stub_server.py --list-modes printed nothing"; exit 1; }
 for f in $READMES; do
   missing=""
   for m in $modes; do
-    grep -qE "stub_server\.py .*$m" "$f" || missing="$missing $m"
+    grep -qE "stub_server\.py .*(^|[^A-Za-z0-9_])$m([^A-Za-z0-9_]|$)" "$f" || missing="$missing $m"
   done
   [ -z "$missing" ] \
     && say ok "stub server modes — $(basename "$f") lists all of: ${modes% }" \

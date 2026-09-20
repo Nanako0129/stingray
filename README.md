@@ -111,7 +111,7 @@ git clone https://github.com/Nanako0129/stingray ~/stingray
   "hooks": {
     "Stop": [
       { "hooks": [ { "type": "command",
-                     "command": "/bin/bash /Users/you/stingray/hooks/stingray.sh",
+                     "command": "/bin/bash \"$HOME/stingray/hooks/stingray.sh\"",
                      "timeout": 10 } ] }
     ]
   }
@@ -122,7 +122,14 @@ Always set `timeout`. Claude Code's default for a hook is **600 seconds**, so an
 
 ### Requirements
 
-`bash`, `jq`, `curl`, `perl` — present on macOS and on any normal Linux. No SDK, no new dependency to install.
+`bash`, `curl` and `perl` ship with macOS and with any normal Linux. **`jq` does not ship with macOS** and the hook exits 0 without it, printing `(stingray: unavailable — jq not found)`:
+
+```bash
+command -v jq || brew install jq      # macOS
+command -v jq || sudo apt install jq  # Debian/Ubuntu
+```
+
+No SDK, and nothing else to install.
 
 `STINGRAY_ENDPOINT` accepts an HTTPS URL, or plain HTTP only to loopback where the test stubs live. The request carries `Authorization: Bearer`, so anything else would put the key on the wire in cleartext and is refused.
 
