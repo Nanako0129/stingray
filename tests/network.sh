@@ -16,6 +16,9 @@ TMP="$(mktemp -d)"
 pass=0; fail=0
 SYNTHETIC='我現在就把設定檔的逾時值改掉，然後跑一次測試確認。'
 
+# Stop any stub still listening and remove the scratch directory. Runs on
+# every exit path, including a failed case, so a hung stub from one run
+# cannot be inherited by the next.
 cleanup() { [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null; rm -rf "$TMP"; }
 trap cleanup EXIT
 

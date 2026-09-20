@@ -17,6 +17,9 @@ ROOT="$(cd "$HERE/.." && pwd)"
 README="$ROOT/README.md"
 pass=0; fail=0
 
+# Record one check outcome. say ok|no <description>; anything but "ok" counts
+# as a failure and makes the script exit non-zero, so a check that forgets to
+# report cannot be mistaken for one that passed.
 say() { if [ "$1" = ok ]; then pass=$((pass+1)); printf '  ok    %s\n' "$2";
         else fail=$((fail+1)); printf '  FAIL  %s\n' "$2"; fi; }
 
