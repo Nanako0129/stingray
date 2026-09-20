@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Local stand-in for the System One endpoint, so the fail-closed paths can be
+"""Local stand-in for the System One endpoint, so the fail-open paths can be
 proven without anything leaving the machine.
 
     stub_server.py hang   <portfile>          accept the request, never answer
     stub_server.py 401    <portfile>          answer 401
     stub_server.py record <portfile> <out>    append each request body to <out>,
                                               then answer with zero scores
+    stub_server.py badscore <portfile>        answer 200 with a score of 2,
+                                              outside the probability range
 
 Record mode is how "what would actually leave this machine" gets measured: by
 capturing the bytes the shipped hook really sends, rather than by re-running a
@@ -79,10 +81,26 @@ def serve(conn):
                 names = []
             conn.sendall(ok_response({"answers": {n: {"noul": 0.0} for n in names}}))
             return
-        conn.recv(65536)
+        if mode == "badscore":
+            # A well-formed 200 carrying an impossible probability. A hook that
+            # allowlists characters rather than checking the range accepts 2,
+            # and 2 clears every threshold, so malformed input would block.
+            body = read_request(conn)
+            try:
+                names = list(json.loads(body).get("questions", {}))
+            except (ValueError, AttributeError):
+                names = []
+            conn.sendall(ok_response({"answers": {n: {"noul": 2} for n in names}}))
+            return
         if mode == "401":
+            # Drain the whole request first. A single recv can return before
+            # curl has finished uploading, and closing mid-upload resets the
+            # connection: curl then takes its transport-error branch and the
+            # case never sees the HTTP 401 marker it keys on.
+            read_request(conn)
             conn.sendall(RESP_401)
         else:
+            conn.recv(65536)
             threading.Event().wait(120)   # accepted, then never answered
     except OSError:
         pass

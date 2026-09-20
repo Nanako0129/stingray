@@ -31,7 +31,11 @@ ENDPOINT="${STINGRAY_ENDPOINT:-https://api.typesafe.ai/v1/systemone}"
 TIMEOUT="${STINGRAY_TIMEOUT:-6}"
 TAU="${STINGRAY_TAU:-0.5}"
 MAX_BLOCKS="${STINGRAY_MAX_BLOCKS:-3}"
-STATE_DIR="${STINGRAY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/stingray}"
+# User input. A non-integer would make the later -ge test error out, and since
+# that test is an if condition the hook would continue with no ceiling at all.
+case "$MAX_BLOCKS" in ''|*[!0-9]*) MAX_BLOCKS=3 ;; esac
+[ "$MAX_BLOCKS" -ge 1 ] 2>/dev/null || MAX_BLOCKS=3
+STATE_DIR="${STINGRAY_STATE_DIR:-${XDG_STATE_HOME:-${HOME:-}/.local/state}/stingray}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
@@ -62,8 +66,8 @@ command -v jq >/dev/null 2>&1 || { echo "(stingray: unavailable — jq not found
 
 input=$(cat)
 # Read one field out of the hook payload. Returns empty on any jq failure, so
-# every caller has to treat "missing" and "unreadable" the same way — which is
-# what the fail-closed rule wants anyway.
+# every caller has to treat "missing" and "unreadable" the same way: do nothing
+# and let the turn end, exactly as if this plugin were not installed.
 j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 
 # ── Loop protection ───────────────────────────────────────────────────────────
@@ -131,7 +135,10 @@ if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
   # That would degrade shape 3 into "block whenever the regex matches", and a
   # positive-case test would still pass — the defect would only surface as a
   # wrong block in normal turns.
-  if [ "$(printf '%s' "$input" | jq 'has("background_tasks")' 2>/dev/null)" = "true" ]; then
+  # Require an actual array. has() is also true for "background_tasks": null,
+  # and [ .[]? ] over null counts zero — so a null would read as "nothing is
+  # running" and block, which is the same defect as a missing key.
+  if [ "$(printf '%s' "$input" | jq '(.background_tasks | type) == "array"' 2>/dev/null)" = "true" ]; then
     running=$(printf '%s' "$input" | jq '[.background_tasks[]? | select(.status=="running")] | length' 2>/dev/null)
     case "$running" in ''|*[!0-9]*) running=-1 ;; esac
     if [ "$running" = "0" ]; then
@@ -146,7 +153,12 @@ if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
 fi
 
 # ── Shapes 1 and 2: judged by Jev ─────────────────────────────────────────────
-KEY="${TYPESAFE_API_KEY:-$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}"
+# Shape-3-only mode stops here. Its whole promise is no account, no request and
+# no latency, and a key sitting in ~/.config would otherwise send this turn's
+# message anyway — the switch would then mean the opposite of what it says.
+[ "$MODE" = "shape3" ] && exit 0
+
+KEY="${TYPESAFE_API_KEY:-${HOME:+$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}}"
 if [ -z "$KEY" ]; then
   marker="$STATE_DIR/nokey-$session"
   [ -f "$marker" ] || { echo "(stingray: unavailable — no key; shapes 1/2 skipped)" >&2; : >"$marker"; }
@@ -197,12 +209,6 @@ redacted=$(printf '%s' "$last" | perl -0777 -pe '
 ' -- -n="$names")
 redacted=$(printf '%s' "$redacted" | tail -c 2400)   # ~800 CJK characters
 
-# Scan the outgoing bytes for secrets. On a hit, send nothing and behave as if
-# the plugin were not installed.
-if printf '%s' "$redacted" | grep -qE 'sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
-  echo "(stingray: payload held — secret pattern in message)" >&2
-  exit 0
-fi
 [ -n "$(printf '%s' "$redacted" | tr -d '[:space:]')" ] || exit 0
 
 # Tool names for this turn, taken from the transcript. When they cannot be read,
@@ -228,6 +234,15 @@ body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
    questions: ($q[0] | with_entries(
      .value.instructions += {final_text: $ft, tools: $tl, background: ($bg|tostring)}))}
 ') || exit 0
+
+# Scan the exact bytes about to be transmitted, not one field of them. The body
+# also carries tool names taken from the transcript, background statuses and the
+# question text; scanning only the redacted message left those uncovered while
+# the README claimed the outgoing bytes were scanned.
+if printf '%s' "$body" | grep -qE 'sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
+  echo "(stingray: payload held — secret pattern in outgoing request)" >&2
+  exit 0
+fi
 
 # The question set is part of the classifier's contract, so its hash is logged
 # with every decision: changing one line of criteria moves the whole score
@@ -259,9 +274,15 @@ meta=$(curl -sS -o "$out" -w '%{http_code} %{time_total}' --max-time "$TIMEOUT" 
 code=${meta%% *}; secs=${meta#* }
 [ "$code" = "200" ] || { echo "(stingray: unavailable — HTTP $code)" >&2; exit 0; }
 
-read -r na bp <<<"$(jq -r '[(.answers.no_action.noul // -1),
-                            (.answers.broken_promise.noul // -1)] | @tsv' "$out" 2>/dev/null)"
-case "$na$bp" in *[!0-9.\	-]*|'') echo "(stingray: unavailable — malformed response)" >&2; exit 0 ;; esac
+# Both scores must be numbers in [0,1]. A character allowlist would admit "2"
+# or "1.2.3", and a score of 2 clears any threshold — malformed input must not
+# be able to block.
+read -r na bp <<<"$(jq -r '
+  [(.answers.no_action.noul), (.answers.broken_promise.noul)]
+  | if all(type == "number" and . >= 0 and . <= 1) then @tsv else empty end
+' "$out" 2>/dev/null)"
+[ -n "${na:-}" ] && [ -n "${bp:-}" ] || {
+  echo "(stingray: unavailable — malformed response)" >&2; exit 0; }
 
 fired=$(awk -v a="$na" -v b="$bp" -v t="$TAU" 'BEGIN{
   if (a >= t && a >= b) print "no_action";

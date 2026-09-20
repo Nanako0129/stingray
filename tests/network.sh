@@ -1,7 +1,7 @@
 #!/bin/bash
 # Network-facing acceptance for stingray.
 #
-# Cases A and B use a local stub server, so they prove the fail-closed paths
+# Cases A and B use a local stub server, so they prove the fail-open paths
 # without a single byte leaving the machine. Cases C and D talk to the real
 # endpoint, and deliberately use a SYNTHETIC assistant message — never real
 # transcript content — so that running the test suite is not itself a data
@@ -97,7 +97,7 @@ else
   say ok "A3 hang at the default timeout → exit 0 after ${elapsed3}s, marker present — worst case a user pays"
 fi
 
-# ── B. HTTP error (401) from a local stub: fail closed, no block.
+# ── B. HTTP error (401) from a local stub: fail open, no block.
 start_stub 401
 run_hook "$TMP/b.err" STINGRAY_STATE_DIR="$TMP/s2" STINGRAY=1 TYPESAFE_API_KEY=bad-key \
   STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
@@ -129,6 +129,17 @@ kill "$STUB_PID" 2>/dev/null; STUB_PID=
 [ "$accepted" -eq 0 ] \
   && say ok "B2 latency sampler rejects fail-open invocations (0 of 3 accepted)" \
   || say no "B2 latency sampler accepted $accepted of 3 fail-open invocations — p95 would be fiction"
+
+# ── B3. A 200 carrying a score of 2. A character allowlist accepts it and 2
+#        clears any threshold, so malformed input would block. It must not.
+start_stub badscore
+run_hook "$TMP/b3.err" STINGRAY_STATE_DIR="$TMP/s3b" STINGRAY=1 TYPESAFE_API_KEY=dummy \
+  STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+{ [ "$rc" = 0 ] && grep -q "malformed response" "$TMP/b3.err"; } \
+  && say ok "B3 score outside [0,1] → exit 0, reported malformed" \
+  || say no "B3 score outside [0,1] → exit $rc; stderr: $(head -c 140 "$TMP/b3.err")"
 
 if [ "${1:-}" != "--live" ]; then
   echo; printf 'passed %d, failed %d  (live cases skipped; pass --live)\n' "$pass" "$fail"

@@ -4,7 +4,7 @@
 # them inspect the source.
 #
 # Every case here is offline: no API key, no network. The network-facing
-# fail-closed paths live in network.sh.
+# fail-open paths live in network.sh.
 #
 #   ./tests/acceptance.sh
 set -u
@@ -121,6 +121,24 @@ check "13 SHAPE3 alone → block" "$(mk "$WATCH_PLAIN" '[]' sess-block-13)" 2 "n
 # 14. Shadow outranks it. Recording mode never blocks, whatever else is set.
 check "14 SHADOW + SHAPE3 → record only" "$(mk "$WATCH_PLAIN" '[]')" 0 "-" \
   STINGRAY_SHADOW=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+
+# 15. Shape-3-only mode must never reach the Jev request path, even when a key
+#     is configured. The endpoint here is unreachable, so any attempt would
+#     print a network marker; an empty stderr proves nothing was sent. Without
+#     the guard, someone who set only STINGRAY_SHAPE3=1 but happens to have a
+#     key on disk would have this turn's message transmitted anyway.
+check "15 SHAPE3 alone + key → nothing sent" "$(mk "$NEUTRAL" '[]' sess-15)" 0 "-" \
+  STINGRAY_SHAPE3=1 TYPESAFE_API_KEY=would-be-used-if-reached \
+  STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable HOME="$TMP/nohome"
+
+# 16. background_tasks: null must not read as "nothing is running". has() is
+#     true for null and [ .[]? ] over null counts zero, so without a type check
+#     this blocks — the same defect as a missing key, through a different door.
+#     The no-key marker is the expected stderr here: not blocking is the claim,
+#     and reaching the key check at all proves shape 3 declined to fire.
+check "16 background_tasks null → pass" \
+  "$(mk "$WATCH_PLAIN" '[]' sess-16 | jq -c '.background_tasks=null')" 0 "no key" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
 # 11. Block budget, independent of stop_hook_active. Feed the same blocking
 #     case four times with stop_hook_active pinned false, as if the harness

@@ -65,8 +65,15 @@ if printf '"'"'%s'"'"' "$mutant_redacted" | grep -qE "$WATCH_RE"; then'
 # turns shape 3 into "block whenever the regex matches"; case 9 is the only
 # thing standing between that and a wrong block on ordinary turns.
 mutate "absent-key-is-empty" "9 " \
-  '[ "$(printf '"'"'%s'"'"' "$input" | jq '"'"'has("background_tasks")'"'"' 2>/dev/null)" = "true" ]' \
+  '[ "$(printf '"'"'%s'"'"' "$input" | jq '"'"'(.background_tasks | type) == "array"'"'"' 2>/dev/null)" = "true" ]' \
   'true'
+
+# Mutant 3 — background_tasks: null read as "nothing is running". has() is true
+# for null and [ .[]? ] over null counts zero, so reverting the type check to a
+# presence check reopens the same hole through a different door.
+mutate "null-is-empty-array" "16" \
+  "[ \"\$(printf '%s' \"\$input\" | jq '(.background_tasks | type) == \"array\"' 2>/dev/null)\" = \"true\" ]" \
+  "[ \"\$(printf '%s' \"\$input\" | jq 'has(\"background_tasks\")' 2>/dev/null)\" = \"true\" ]"
 
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"
