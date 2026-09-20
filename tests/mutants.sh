@@ -75,6 +75,13 @@ mutate "null-is-empty-array" "16" \
   "[ \"\$(printf '%s' \"\$input\" | jq '(.background_tasks | type) == \"array\"' 2>/dev/null)\" = \"true\" ]" \
   "[ \"\$(printf '%s' \"\$input\" | jq 'has(\"background_tasks\")' 2>/dev/null)\" = \"true\" ]"
 
+# Mutant 4 — shape-3-only mode falls through to the Jev request path. This is
+# the regression that actually shipped once: the switch promised no request
+# while a key on disk made one anyway.
+mutate "shape3-reaches-jev" "15" \
+  '[ "$MODE" = "shape3" ] && exit 0' \
+  ':'
+
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -65,9 +65,10 @@ jev_blocks=0
 command -v jq >/dev/null 2>&1 || { echo "(stingray: unavailable — jq not found)" >&2; exit 0; }
 
 input=$(cat)
-# Read one field out of the hook payload. Returns empty on any jq failure, so
-# every caller has to treat "missing" and "unreadable" the same way: do nothing
-# and let the turn end, exactly as if this plugin were not installed.
+# Read one field out of the hook payload. Returns empty on any jq failure, so a
+# missing field and an unreadable one are indistinguishable to the caller. Each
+# caller below decides what to do with an empty value; several exit 0 there.
+# That is a statement about those branches, not a measured claim about the turn.
 j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 
 # ── Loop protection ───────────────────────────────────────────────────────────
@@ -131,13 +132,11 @@ EOF
 # implementation that (wrongly) matched on redacted text.
 WATCH_RE='監看|監控|盯著|盯住|輪詢|持續追蹤|等 ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|完成|結果|綠)|poll(ing)?|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)'
 if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
-  # A missing background_tasks key must NOT be read as "nothing is running".
-  # That would degrade shape 3 into "block whenever the regex matches", and a
-  # positive-case test would still pass — the defect would only surface as a
-  # wrong block in normal turns.
-  # Require an actual array. has() is also true for "background_tasks": null,
-  # and [ .[]? ] over null counts zero — so a null would read as "nothing is
-  # running" and block, which is the same defect as a missing key.
+  # Require an actual array. Neither a missing key nor a null may be read as
+  # "nothing is running": has() is true for null, and [ .[]? ] over null counts
+  # zero, so either would degrade shape 3 into "block whenever the regex
+  # matches". A positive-case test still passes under that defect — it surfaces
+  # only as a wrong block on ordinary turns, which is why mutants.sh covers it.
   if [ "$(printf '%s' "$input" | jq '(.background_tasks | type) == "array"' 2>/dev/null)" = "true" ]; then
     running=$(printf '%s' "$input" | jq '[.background_tasks[]? | select(.status=="running")] | length' 2>/dev/null)
     case "$running" in ''|*[!0-9]*) running=-1 ;; esac
@@ -153,9 +152,11 @@ if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
 fi
 
 # ── Shapes 1 and 2: judged by Jev ─────────────────────────────────────────────
-# Shape-3-only mode stops here. Its whole promise is no account, no request and
-# no latency, and a key sitting in ~/.config would otherwise send this turn's
-# message anyway — the switch would then mean the opposite of what it says.
+# Shape-3-only mode stops here: it skips the credential lookup and the request
+# entirely. It does not skip the work above — stdin has been read and jq and
+# grep have run — so this is not a zero-cost path, only a zero-request one.
+# Without this exit a key sitting in ~/.config would send this turn's message
+# anyway, and the switch would mean the opposite of what it says.
 [ "$MODE" = "shape3" ] && exit 0
 
 KEY="${TYPESAFE_API_KEY:-${HOME:+$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}}"

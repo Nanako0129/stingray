@@ -54,10 +54,7 @@ The nudge is one fixed paragraph, not a generated critique. It offers three ways
 
 Every failure path — no key, missing `jq`, missing `questions.json`, a secret spotted in the outgoing bytes, a timeout, a non-200, a malformed body, a score below threshold, an unreadable `background_tasks` — exits 0 and leaves behaviour exactly as if the plugin were not installed.
 
-stingray can add work. It can never let the model do less. Every failure is
-fail-open in the literal sense — the turn ends exactly as it would have — and
-that is the safe direction here, because the thing being withheld is a nudge,
-not a permission. That single rule is what makes the failure modes boring: there is no configuration in which a broken stingray approves something, and no outage that turns into a silent pass.
+stingray can add work. It can never let the model do less. Every failure is fail-open in the literal sense — the turn ends exactly as it would have — and that is the safe direction here, because the thing being withheld is a nudge, not a permission. That single rule is what makes the failure modes boring: there is no configuration in which a broken stingray approves something, and no outage that turns into a silent pass.
 
 ## Install
 
@@ -107,7 +104,7 @@ Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3 needs no key a
 | `STINGRAY=1` | Blocks on shapes 1 and 2. |
 | `STINGRAY_SHAPE3=1` | Blocks on shape 3. **Usable on its own**: shape 3 needs no key and no network, so this alone enables the hook without switching on the two Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
 
-The cheapest useful configuration is `STINGRAY_SHAPE3=1` by itself: no account, no key, no request, no latency — just the check that a promise to watch something has something running behind it.
+The cheapest useful configuration is `STINGRAY_SHAPE3=1` by itself: no account, no key, and no request — just the check that a promise to watch something has something running behind it. It still reads the payload and runs a regex, so it is not free, only free of network and of TypeSafe.
 
 Other knobs: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra names to mask), `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned — `jev-latest` would change the classifier under you).
 
@@ -226,11 +223,11 @@ stingray/
 │   └── turn-tools.jq            # slice one turn out of the transcript
 ├── questions.json               # the two Jev criteria — the classifier's contract, pinned to jev-1.13.0
 └── tests/
-    ├── acceptance.sh            # 16 offline cases, no key, no network
+    ├── acceptance.sh            # 20 offline cases, no key, no network
     ├── network.sh               # fail-open paths; --live also hits the real endpoint
-    ├── mutants.sh               # re-derives that cases 7 and 9 can still fail
+    ├── mutants.sh               # re-derives that cases 7, 9, 15 and 16 can still fail
     ├── show-payload.sh          # capture what would really be sent, locally
-    ├── stub_server.py           # local stand-in: hang, 401, or record
+    ├── stub_server.py           # local stand-in: hang, 401, record, or badscore
     └── latency.py               # p50/p95 against a budget, exits non-zero over it
 ```
 
@@ -240,7 +237,7 @@ stingray/
 ./tests/acceptance.sh        # 20 cases, no key, no network
 ./tests/network.sh           # fail-open paths against a local stub server
 ./tests/network.sh --live    # also the real endpoint, with synthetic text only
-./tests/mutants.sh           # do the guards still guard?
+./tests/mutants.sh           # do the guards still guard? (4 mutants)
 ./tests/show-payload.sh 50   # capture what would really be sent, locally
 ```
 
