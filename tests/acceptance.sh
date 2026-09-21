@@ -161,7 +161,13 @@ for phrase in \
   "等 CI 的數字出來我再判斷。" \
   "等審查結果回來我告訴你。"
 do
-  check "17 watch phrasing: ${phrase:0:14}…" "$(mk "$phrase" '[]' "sess-17-$RANDOM")" \
+  # A counter, not $RANDOM: a test that varies between runs cannot be replayed,
+  # and this suite already has one failure nobody could reproduce. Numbered
+  # rather than sliced, because ${var:0:14} counts characters under a UTF-8
+  # locale and bytes otherwise, so the label would be cut mid-character on a
+  # runner that does not set one.
+  phrase_n=$((${phrase_n:-0} + 1))
+  check "17.$phrase_n watch phrasing" "$(mk "$phrase" '[]' "sess-17-$phrase_n")" \
     2 "nothing is running" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 done
 
