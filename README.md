@@ -4,12 +4,12 @@
 
 [![tests](https://github.com/Nanako0129/stingray/actions/workflows/tests.yml/badge.svg)](https://github.com/Nanako0129/stingray/actions/workflows/tests.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> A Claude Code `Stop` hook for the turn that ends half-done. It catches the three ways a turn quits early — nothing done, an announced action never carried out, a promise to watch CI with nothing polling — and blocks the stop with a nudge instead of letting the turn close on an empty promise.
+> A Claude Code `Stop` hook for turns that stop half-done. It catches three premature exit patterns — stopping without taking action, declaring an action without calling the tools to back it up, and claiming to monitor background work while nothing is running — and intercepts the exit with a nudge so the turn does not close on an empty promise.
 
-Stingrays lie still on the sand and cost you nothing until you step on one. This does the same: silent on a normal turn, a nudge only on a turn that stopped when it should have kept going. Two of the three judgements go to [Jev](https://typesafe.ai); the third is arithmetic, because both halves of it are exact values and turning a certainty into a probability is a downgrade.
+Stingrays sit motionless on sand until stepped on. This hook operates the same way: silent during normal operation, intervening only when a turn stops prematurely. Shapes 1 and 2 are language evaluations handled by [Jev](https://typesafe.ai). Shape 3 checks local process counts first; only when background work is active does it consult a model to verify correspondence.
 
 ```
-you:     fix the timeout and run the tests
+you:     fix the timeout and run the suite
 claude:  I'll change the config value now, then run the suite.
          [turn ends. nothing was changed. nothing was run.]
 
@@ -45,22 +45,23 @@ claude:  [edits the config, runs the suite]
 | # | Shape | Judged by |
 |---|-------|-----------|
 | 1 | `no_action` — stopped without doing anything, when it could have acted | [Jev](https://typesafe.ai) |
-| 2 | `broken_promise` — declared an action the turn's tool calls don't account for | Jev |
-| 3 | `unwatched` — promised to watch CI or a PR review with nothing polling | computed locally |
+| 2 | `broken_promise` — declared an action that this turn's tool calls do not account for | Jev |
+| 3 | `unwatched` — promised to monitor external progress (CI, build, PR review) | Computed locally or Jev (see below) |
 
-Shape 3 is settled by arithmetic where arithmetic can settle it, and only then by a model. If a turn promises to watch something and **nothing at all** is running or scheduled, no judgement is required: that promise has no mechanism behind it. That case needs no key and no network, which is why `STINGRAY_SHAPE3=1` on its own is still the cheapest useful configuration.
+Shape 3 separates into two distinct layers:
 
-When something *is* running, counting stops being an answer. A build running while the turn promised to follow a PR review satisfies "something is running" and misses the broken promise completely. Whether the work that is running corresponds to the work that was promised is a judgement, so that case — and only that case — goes to Jev, with the closing message and the running work side by side. Without a key it is left alone, which is the behaviour you have today.
+- **Certain layer:** The assistant declared an intent to monitor background work, but running background tasks plus `session_crons` **equals 0**. This condition is settled by local arithmetic without an API key or network access. Setting `STINGRAY_SHAPE3=1` alone runs this check.
+- **Judgement layer:** Running background tasks plus `session_crons` **is greater than 0**. Counting processes cannot determine whether running jobs match what was promised. A background build satisfies a non-zero count while leaving a promised PR review unmonitored. Evaluating whether running work corresponds to the promise requires language interpretation, which is sent to Jev under the `watch_mismatch` evaluation. Without an API key, this evaluation is skipped, preserving existing behavior.
 
-An earlier version of this section said both halves were exact. That was wrong about one of them: `background_tasks` is an exact field, but "did it claim to watch something" is a language judgement approximated by a regex, and the first live run found it missing the most ordinary phrasing.
+Earlier documentation stated both halves of shape 3 were exact values. That claim was incorrect. `background_tasks` is an exact field provided by the harness, but detecting whether an assistant declared an intent to monitor work relies on regular expression approximations.
 
-The nudge is one fixed paragraph, not a generated critique. It offers three ways out — finish the work, launch the polling, or name the decision you are blocked on — because a turn stops half-done for all three reasons and only the model knows which.
+The nudge delivered on interception is a fixed paragraph written to stderr, not a dynamically generated critique. It offers three ways out: finish the work, launch a background poll, or state what decision is blocking progress.
 
 ## Friction only ever goes up
 
-Every failure path — no key, missing `jq`, missing `questions.json`, an endpoint that is neither HTTPS nor loopback, a secret spotted in the outgoing bytes, a timeout, a non-200, a malformed body, a score outside [0,1] or below threshold, an unreadable `background_tasks`, even a block counter that cannot be written — exits 0 and leaves behaviour exactly as if the plugin were not installed.
+Every failure path exits 0: missing API keys, absent `jq`, missing `questions.json`, endpoints that are neither HTTPS nor loopback, credential patterns spotted in outgoing payloads, timeouts, non-200 responses, malformed bodies, scores outside [0, 1] or below threshold, unreadable `background_tasks`, or failures writing the interception counter.
 
-stingray can add work. It can never let the model do less. Every failure is fail-open in the literal sense — the turn ends exactly as it would have — and that is the safe direction here, because the thing being withheld is a nudge, not a permission. That single rule is what makes the failure modes boring: there is no configuration in which a broken stingray approves something, and no outage that turns into a silent pass.
+In every failure mode, stingray leaves session behavior identical to an environment where the plugin was never installed. The hook can prompt additional work; it can never permit less. Every failure fails open by allowing the turn to conclude normally. Because the hook withholds an intervention rather than granting a permission, a defective configuration cannot approve work. An outage does mean the check did not run and the turn ended unexamined — the same position you are in without the plugin, which is why this direction is the safe one, but it is not the same as the turn having been checked.
 
 ## Install
 
@@ -83,28 +84,28 @@ claude plugin uninstall stingray
 
 > **Tip:** The in-session `/plugin install` dialog asks you to pick a scope — choose **User** there.
 
-> **What "verified" means here:** the manifest and both commands were exercised against a local checkout — the marketplace registers, `plugin install` reports success, and `plugin list` shows `stingray@stingray` enabled at user scope. With no switch exported, a payload that would otherwise fire shape 3 exits 0 and creates no state directory, so a fresh install really is inert. The `Nanako0129/stingray` form was exercised the same way after the merge: marketplace added from GitHub, plugin installed at user scope, and a payload that would otherwise fire shape 3 still exits 0 with no state directory.
+> **Verification details:** The manifest and installation commands were tested against a local checkout: the marketplace registered, `plugin install` reported success, and `plugin list` showed `stingray@stingray` enabled at user scope. With no switches exported, a payload that would otherwise trigger shape 3 exited 0 and created no state directory. The `Nanako0129/stingray` syntax was verified the same way after merging: added from GitHub, installed at user scope, and confirmed to exit 0 without writing state files.
 
-**Installing it does nothing on its own.** The hook is off until a switch is set, which is deliberate: a plugin that starts interrupting turns the moment it lands is not something you can evaluate. Pick one and put it where your shell exports it:
+**Installation alone performs no actions.** The hook remains inactive until a switch is exported:
 
 ```bash
-# the free local check: no account, no key, no request
+# free local check: no account, no key, no network requests
 export STINGRAY_SHAPE3=1
 
-# or: call Jev, write a decision record, never block. Start here if you have a key.
+# or: call Jev, log decision records, never block turn completion. Start here with an API key.
 export STINGRAY_SHADOW=1
 ```
 
-Verify it is loaded and doing nothing yet:
+Verify that the plugin is loaded:
 
 ```bash
 claude plugin list | grep stingray
-tail -f ~/.local/state/stingray/decisions.jsonl   # nothing until shadow or active
+tail -f ~/.local/state/stingray/decisions.jsonl   # written by shape 3 too, before it blocks
 ```
 
-### Or wire the hook by hand
+### Manual hook configuration
 
-No plugin machinery needed — it is one script:
+The hook can be wired directly as a shell script:
 
 ```bash
 git clone https://github.com/Nanako0129/stingray ~/stingray
@@ -122,83 +123,97 @@ git clone https://github.com/Nanako0129/stingray ~/stingray
 }
 ```
 
-Always set `timeout`. Claude Code's default for a hook is **600 seconds**, so an endpoint that hangs would hold your turn open for ten minutes.
+Always set `timeout`. Claude Code's default hook timeout is **600 seconds**; an explicit value prevents an unresponsive endpoint from holding a turn open for ten minutes.
 
 ### Requirements
 
-`bash`, `curl` and `perl` ship with macOS and with any normal Linux. **`jq` does not ship with macOS** and the hook exits 0 without it, printing `(stingray: unavailable — jq not found)`:
+`bash`, `curl`, and `perl` ship with macOS and standard Linux distributions. **`jq` is not pre-installed on macOS**. Without `jq`, the hook exits 0 before evaluating any shape, printing `(stingray: unavailable — jq not found)`:
 
 ```bash
 command -v jq || brew install jq      # macOS
 command -v jq || sudo apt install jq  # Debian/Ubuntu
 ```
 
-No SDK, and nothing else to install.
+No SDK or additional runtime is required.
 
-`STINGRAY_ENDPOINT` accepts an HTTPS URL, or plain HTTP only to loopback where the test stubs live. The request carries `Authorization: Bearer`, so anything else would put the key on the wire in cleartext and is refused.
+`STINGRAY_ENDPOINT` accepts HTTPS URLs, or plain HTTP restricted to loopback where local test servers run. Outgoing requests carry `Authorization: Bearer`; unencrypted requests to non-loopback destinations are rejected to avoid transmitting keys over plaintext connections.
 
 ## API key
 
-Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3's **certain** case — a promise with nothing running or scheduled behind it — needs no key and no network. Its correspondence judgement does, because that one asks the model whether the running work matches the promise.
+Shapes 1 and 2 call TypeSafe System One (`jev-1.13.0`). Shape 3's **certain** case — a promise with no active tasks or scheduled crons — requires neither an API key nor network access. The correspondence judgement requires both, as it asks the model whether running jobs match what was promised.
 
-1. Get a key at <https://typesafe.ai>.
-2. Put it in `~/.config/typesafe/api_key` (`chmod 600`), or export `TYPESAFE_API_KEY`. The file is preferred: an environment variable is visible to every process you launch.
+1. Obtain a key at <https://typesafe.ai>.
+2. Place it in `~/.config/typesafe/api_key` (`chmod 600`), or export `TYPESAFE_API_KEY`. The configuration file is preferred because environment variables are exposed to child processes.
 
-**Without a key, stingray behaves exactly as it does when uninstalled.** It prints `(stingray: unavailable — no key; shapes 1/2 skipped)` once per session and keeps shape 3 working. It is never silently inert.
+**Without an API key, stingray leaves shapes 1 and 2 inactive.** It outputs `(stingray: unavailable — no key; shapes 1/2 skipped)` once per session while keeping shape 3's local check operational. It does not fail silently.
 
 ## Switches (off by default)
 
+Each switch controls evaluation and interception behavior. By default, all switches are unset; the hook exits immediately without running evaluations, issuing requests, or creating files.
+
+Precedence and execution rules:
+
+1. **Unset (default):** Exits 0 immediately. Nothing runs, nothing is sent, and no state files are created.
+2. **`STINGRAY_SHAPE3=1` (local arithmetic check):** Intercepts turn completion on shape 3's certain case alone (promised to monitor work, but active tasks plus scheduled crons equal 0). Requires no account, no key, and no network requests.
+3. **`STINGRAY_SHADOW=1` (shadow mode, highest precedence):** Evaluates shapes 1 and 2 via Jev and writes decision records to disk, but **never blocks turn completion**. Overrides blocking behavior from both `STINGRAY=1` and `STINGRAY_SHAPE3=1`. Start here once you configure an API key.
+4. **`STINGRAY=1` (active mode):** Blocks turn completion on shapes 1 and 2 when Jev flags unfulfilled promises or missing actions.
+5. **`STINGRAY_SHAPE3_JUDGE=1` (shape 3 correspondence judgement):** Allows the model evaluation for shape 3 to block turn completion when background work is running but does not match the promise. Requires `STINGRAY_SHAPE3=1` and non-shadow mode. Defaults to off even when shape 3 is active, because its threshold is borrowed without dedicated offline measurement.
+
 | Variable | Effect |
 |---|---|
-| *(nothing set)* | **Default.** The hook exits immediately. Nothing runs, nothing is sent. |
-| `STINGRAY_SHADOW=1` | Calls Jev, writes a decision record, **never blocks**. Start here. |
-| `STINGRAY=1` | Blocks on shapes 1 and 2. |
-| `STINGRAY_SHAPE3=1` | Blocks on shape 3's **certain** case — a promise with nothing running or scheduled behind it. Needs no key and no network, so this alone enables the hook without switching on the Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
-| `STINGRAY_SHAPE3_JUDGE=1` | Also lets the **correspondence judgement** block: something is running, and a model says it is not the promised thing. Off even when shape 3 is blocking, because that answer is a probability with a borrowed threshold and no measurement behind it. It records from the first turn either way. |
+| *(nothing set)* | **Default.** Hook exits immediately (code 0). Nothing runs, nothing is sent, no state files created. |
+| `STINGRAY_SHADOW=1` | Calls Jev, logs decision records, **never blocks turn completion**. Outranks `STINGRAY=1` and `STINGRAY_SHAPE3=1`. Start here. |
+| `STINGRAY=1` | Blocks turn completion on shapes 1 and 2 via Jev. |
+| `STINGRAY_SHAPE3=1` | Blocks turn completion on shape 3's **certain** case (promised to watch work, but active background tasks + scheduled crons == 0). Needs no key and no network. Outranked by `STINGRAY_SHADOW=1`. |
+| `STINGRAY_SHAPE3_JUDGE=1` | Allows shape 3's **correspondence judgement** to block turn completion (active tasks > 0, but model judges they do not match the promise). Off by default; requires `STINGRAY_SHAPE3=1` and `STINGRAY=1`. In shape-3-only mode the hook exits before the request path, so this judgement never runs there. Logs decisions regardless of switch state. |
 
-The cheapest useful configuration is `STINGRAY_SHAPE3=1` by itself: no account, no key, and no request — just the check that a promise to watch something has something running behind it. It still reads the payload and runs a regex, so it is not free, only free of network and of TypeSafe.
+The minimal working configuration is `STINGRAY_SHAPE3=1` alone: no external account, no API key, and no outbound requests. It reads the local payload and runs regular expressions against the message, so execution overhead is non-zero, but isolated from network dependencies.
 
-Other knobs: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra names to mask), `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned — `jev-latest` would change the classifier under you).
+Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
 
 ## What leaves your machine
 
-Three fields, and only when a key is configured:
+Only three fields are transmitted, and only when an API key is configured:
 
 | Field | Content |
 |---|---|
-| `final_text` | the last assistant message, redacted, then truncated to the last 2400 **bytes** — about 800 CJK characters, but roughly 2400 characters of plain ASCII, so an English turn sends about three times the text the accuracy figures were measured on |
-| `tools` | tool **names** and a count for this turn — never arguments |
-| `background` | for each background task: its status and its **description**. For each scheduled cron: its **prompt**, the instruction written for it. Both go through the same redaction as the message, with credential shapes stripped first. Command lines are never sent. |
+| `final_text` | The last assistant message, redacted, then truncated to the last 2400 **bytes** — roughly 800 CJK characters, but approximately 2400 ASCII characters. An English turn transmits roughly three times the character volume used in benchmark evaluations. |
+| `tools` | Tool **names** and invocation counts for this turn, excluding arguments. |
+| `background` | For each background task: status and **description**. For each scheduled cron: the assigned **prompt**. Both undergo message redaction after stripping credential patterns. Command lines are never sent. |
 
-Your prompts to Claude are never sent. Tool arguments, file contents and diffs are never sent. A **scheduled cron's prompt is sent**, because judging whether scheduled work matches what was promised means reading what it was told to do — that is the one prompt-shaped thing that leaves.
+User prompts sent to Claude are never transmitted. Tool arguments, file contents, diffs, and executed command lines are never transmitted.
 
-Redaction removes fenced code, block quotes, inline code and URLs, drops any line carrying an absolute path, a relative path or a filename, and masks commit SHAs, issue numbers and project names. Project names are *derived*, not hardcoded: the directory the hook reports and the repository its git remote points at. Sibling projects you mention by name are not discoverable from there — list them in `STINGRAY_REDACT_WORDS` if you want them masked too.
+**Scheduled cron prompts are transmitted.** Determining whether scheduled work matches what was promised requires reading the instructions assigned to that cron.
 
-Truncation happens **after** redaction. The other order slices a code fence in half, the pair stops matching, and the whole block leaks.
+Redaction strips fenced code, block quotes, inline code spans, and URLs. It drops any line containing absolute paths, relative paths, or filenames, and masks commit SHAs, issue numbers, and project names. Project names are derived dynamically from the local working directory and git remote URL. Mentioned sibling projects cannot be inferred automatically; list them in `STINGRAY_REDACT_WORDS` if masking is required.
 
-Before any request leaves, the outgoing bytes are scanned for key material (`sk-`, `ghp_`, `AKIA`, PEM headers). On a hit the request is dropped and the turn proceeds untouched.
+Truncation occurs **after** redaction. Performing truncation first can split code fences, breaking delimiter balance and causing code blocks to leak.
 
-### See for yourself, then decide
+Before transmission, outbound bytes pass through two credential checks:
+1. The redaction pipeline strips `Authorization` headers, bare Bearer or Basic tokens, fields named `api_key`, `auth_token`, `secret`, or `password`, and `github_pat_`.
+2. A pre-flight scan checks outgoing bytes for `sk-`, `gh[pousr]_`, `github_pat_`, `AKIA`, and PEM headers. Any match cancels the request and lets the turn proceed untouched.
+
+### Inspecting wire payloads
 
 ```bash
 ./tests/show-payload.sh 50
 ```
 
-That drives the **real hook** against a local recording server and writes the exact bytes it would put on the wire to `payload-audit.txt`. It reports what is sent, not what the redactor intends to remove. A separate copy of a redactor drifts from the shipped one — that drift already happened here once, and this README promised a rule the code did not have.
+This command runs the actual hook against a local recording server, writing the exact wire bytes to `payload-audit.txt`. It inspects actual network payloads rather than expected filter behavior.
 
-### The redaction ceiling, measured on the bytes actually sent
+### Redaction ceiling
 
-**Redaction does not reach "no private content", and nothing here should be read as if it did.**
+**Redaction does not achieve "zero private content", and no description here implies that standard.**
 
-Across 48 captured payloads from real turns, every leak category the tool counts came back zero: fenced code, absolute and relative paths, filenames, URLs, commit SHAs, issue numbers, line ranges. A zero there means *not found*, never *clean* — a scan can only find the categories somebody thought of.
+Across 48 captured payloads from real turns, all eight tracked leak categories returned zero: fenced code, absolute and relative paths, filenames, URLs, commit SHAs, issue numbers, and line ranges. A zero indicates predefined patterns were *not found*, never that the payload is *clean*.
 
-What plainly survives is the **substance of the work**. Reading those payloads tells you a quota window was read at 80% while 47 samples in the same window said 77%, that a 60-second blind poll is still running, that six recovery files sit in a directory dated 2026-08-22. Identifiers are gone; what you are building, what is broken, and how you decided to fix it are not.
+The **substance of the work survives transmission**. Reading those payloads reveals that a quota window was measured at 80% while 47 samples in the same window reported 77%, that a 60-second blind poll was running, and that six recovery files dated 2026-08-22 were present in a directory. Identifiers were masked; the operational task, the error encountered, and the planned resolution remained legible.
 
-TypeSafe processes in the United States, retains without a stated limit, and caps liability at USD 50. Decide with that in front of you and with `payload-audit.txt` open. `STINGRAY_SHADOW=1` still sends. Only the default off state sends nothing at all.
+TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability low enough that a leak leaves no practical financial remedy. Read the current terms rather than this summary of them — the terms change and the summary will not. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. Two states make no outbound request at all: the default unset state, and `STINGRAY_SHAPE3=1` on its own, which exits before the request path.
 
 ## Calibration
 
-Measured offline against 124 turns from one maintainer's real transcripts, labelled by whether that person had to type "keep going" (`jev-1.13.0`, 2026-09-21):
+Offline measurement against 124 turns from maintainer transcripts, labelled by whether the user typed "keep going" (`jev-1.13.0`, 2026-09-21):
 
 | payload | precision | recall | FPR |
 |---|---|---|---|
@@ -206,75 +221,81 @@ Measured offline against 124 turns from one maintainer's real transcripts, label
 | last two sentences only | 61.1% | 17.2% | 11.7% |
 | structured flags only | — | — | `no_action` never fires |
 
-Per question, at full payload: `no_action` 85.7% precision at 1.7% FPR; `broken_promise` 66.7% at 3.3%. Cutting the payload to the last two sentences costs 20 points of precision and triples the false-positive rate, which is why the whole message is sent.
+Per question, at full payload: `no_action` achieved 85.7% precision at 1.7% FPR; `broken_promise` achieved 66.7% at 3.3%. Restricting the payload to the last two sentences reduced precision by 20 percentage points and tripled false positives, which is why the full redacted message is sent.
 
-High precision with low recall is the right shape here. A wrong nudge costs a wasted turn; a missed one costs nothing at all.
+High precision paired with low recall fits this design: an erroneous nudge wastes a turn, whereas a missed nudge leaves execution unchanged.
 
-**That experiment cannot settle the question, and it is not presented as if it could.** The labels systematically undercount: a person only sometimes types "keep going" — often they just answer, or move on. Of the two false positives at τ=0.5, reading them showed one was a labelling error rather than a prediction error; ten of eleven hits were correct. A second caveat, stated because this exact divergence has already caused one defect here: the offline experiment ran through a *copy* of the redactor that masked a fixed list of project names, while the shipped one derives them. Treat 81.8% as measured on a near neighbour of what ships, not on it.
+**This experiment does not settle model accuracy.** The measurement carries three specific limitations:
+1. Labels systematically undercount positive cases: users only sometimes type "keep going", often answering directly or continuing manually.
+2. For the two false positives observed at τ=0.5, manual review showed one was a labeling error rather than an incorrect prediction; 10 of 11 positive flags were accurate under human review.
+3. The offline benchmark ran through a *copy* of the redactor that masked a hardcoded project list, whereas the shipped version derives names dynamically. The 81.8% figure was measured on a close neighbor of the shipped code, not on the exact implementation.
 
-Hence: off by default, `STINGRAY_SHADOW=1` as the first setting, and **two independent bars** before either judge is allowed to block. Shape 3 must not ride in on shapes 1 and 2's calibration.
+**Shape 3 correspondence has never been evaluated offline.** Its threshold is borrowed from the other two questions without independent validation.
 
-| Judge | Bar before it may block |
+Two independent bars govern activation before either evaluator may block turn completion:
+
+| Judge | Bar before blocking turn completion |
 |---|---|
-| Shapes 1 and 2 (`STINGRAY=1`) | ≥ 40 shadow records, ≥ 70% precision on your own reading, ≤ 3 wrong nudges per 100 stop points, τ placed in the empty band between the score clusters with the derivation written beside it |
-| Shape 3, certain case (`STINGRAY_SHAPE3=1`) | none — arithmetic, no threshold to calibrate |
-| Shape 3, correspondence (`STINGRAY_SHAPE3_JUDGE=1`) | ≥ 20 shadow records, ≥ 70% precision on your own reading |
+| Shapes 1 and 2 (`STINGRAY=1`) | ≥ 40 shadow records, ≥ 70% precision on manual inspection, ≤ 3 false nudges per 100 stop points, τ placed in the empty band between score clusters with derivation documented |
+| Shape 3, certain case (`STINGRAY_SHAPE3=1`) | None — pure arithmetic, no threshold to calibrate |
+| Shape 3, correspondence (`STINGRAY_SHAPE3_JUDGE=1`) | ≥ 20 shadow records, ≥ 70% precision on manual inspection |
 
-Records land in `$STINGRAY_STATE_DIR/decisions.jsonl`, one line per decision, each carrying `qset_hash` — the hash of `questions.json`, not of the request. Editing one line of criteria moves the whole score distribution, so a threshold calibrated under the old wording is void, and a hash that changed every turn could not show you that. It hashed the request body until CodeRabbit pointed out that this made it useless for the one job it has.
+Records land in `$STINGRAY_STATE_DIR/decisions.jsonl`, one line per decision, tagged with `qset_hash` — the SHA-256 hash of `questions.json`, **not the hash of the request**. Modifying criteria shifts score distributions, voiding thresholds calibrated under earlier phrasing; a per-request hash would vary on every turn and could not detect criteria drift.
 
 ## Latency
 
-Measured at the hook position in shadow mode, not with a bare `curl`, because what matters is what the turn waits for. Taiwan to `api.typesafe.ai`, three separate runs of 20:
+Measured at hook position in shadow mode between Taiwan and `api.typesafe.ai`, across three separate runs of 20 requests:
 
 | | p50 | p95 | budget |
 |---|---|---|---|
 | shadow mode | 0.742–0.760s | 0.818–0.888s | 1.0s |
 
-A range rather than one number, because the exact figure is not reproducible across runs and a single decimal would imply otherwise.
+Results are reported as ranges because network latency cannot be reproduced to a single decimal across runs.
 
-The budget applies to shadow too: shadow is where you will spend most of your time and it pays the same round trip. If your p95 exceeds it, turn the plugin off or lower `STINGRAY_TIMEOUT` — dropping back to shadow does not remove the latency, so it is not a remedy.
+The 1.0-second budget applies to shadow mode as well: shadow mode executes the same network round trip. If your p95 exceeds this budget, disable the hook or lower `STINGRAY_TIMEOUT`. Reverting to shadow mode does not remove latency.
 
-That budget covers the healthy case only. When the endpoint hangs, the turn waits for `STINGRAY_TIMEOUT` and then proceeds: **measured at 6.15s with the shipped default**, against a stub that accepts and never answers. Lower the timeout if that is too long to pay on a bad day.
+This budget covers healthy endpoints. When an endpoint hangs, execution waits until `STINGRAY_TIMEOUT`: **measured at 6.15s with the default 6-second timeout** against an unresponsive stub server. Lower `STINGRAY_TIMEOUT` if that delay is unacceptable during outages.
 
 ## Loop protection
 
-Two guards, because one boolean is a single point of failure whose failure direction is an infinite loop:
+Two distinct guards prevent execution loops, avoiding single points of failure:
 
-1. `stop_hook_active` from the harness — true on re-entry, so a nudge is never applied twice to the same stop.
-2. A per-session block budget (3 by default) that does not depend on the first.
+1. `stop_hook_active` from the harness evaluates to `true` on re-entry, preventing consecutive interventions on the same stop event.
+2. A per-session interception limit (`STINGRAY_MAX_BLOCKS`, default 3) enforced independently of the harness flag.
 
 ## Known limits
 
-- The Jev criteria in `questions.json` are written in Traditional Chinese, because that is the corpus the 81.8% was measured on. English criteria are untested and would void that number. If you work in English, expect to rewrite them and recalibrate.
-- Shape 3's accuracy cannot be measured offline at all: its evidence, `background_tasks`, exists only at the moment the hook runs and cannot be reconstructed from a transcript. The test suite proves the branch behaves correctly on synthetic input; whether it fires on the right turns can only come from your shadow log.
-- Redaction has a measured ceiling, described above.
+- Criteria in `questions.json` are written in Traditional Chinese, matching the corpus used for the 81.8% benchmark. English criteria have zero live measurements; replacing them voids that accuracy figure. Working in English requires rewriting criteria and recalibrating thresholds.
+- Shape 3 accuracy cannot be measured offline: `background_tasks` exists only at hook execution and cannot be reconstructed from saved transcripts. Test suites verify logic on synthetic inputs, but production precision depends on your shadow logs.
+- Redaction leaves the substance of the work visible, as detailed in the privacy section.
+- `network.sh --live` encountered an 8/9 result on a single test run; five subsequent reruns could not reproduce the failure, and the failing check was not identified. This occurrence is documented in test comments.
 
 ## Stop hook facts, measured not read
 
-Claude Code v2.1.278, 2026-09-21. The official documentation is wrong on three counts, so these were established by running it:
+Claude Code v2.1.278, 2026-09-21. Official documentation differs on three counts, established by live execution:
 
-| | Docs say | Actually |
+| Item | Docs say | Reality |
 |---|---|---|
-| Blocking | `exit 2` and print `hookSpecificOutput` JSON on stdout | `exit 2` blocks, but **stdout never reaches the model**. The reason must go to **stderr** |
-| `stop_hook_active` | not documented; roll your own counter | **present**, `true` on re-entry |
-| `stop_reason`, `scratchpad_dir`, `effort` | provided | **absent** |
+| Blocking turn completion | `exit 2` and print `hookSpecificOutput` JSON on stdout | `exit 2` blocks the turn, but **stdout never reaches the model**. The reason must go to **stderr** |
+| `stop_hook_active` | Undocumented; implement custom tracking | **Present**, evaluates to `true` on re-entry |
+| `stop_reason`, `scratchpad_dir`, `effort` | Provided in payload | **Absent** |
 
-Fields actually delivered: `session_id`, `prompt_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`, `stop_hook_active`, `last_assistant_message`, `background_tasks`, `session_crons`.
+Fields delivered to the hook: `session_id`, `prompt_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`, `stop_hook_active`, `last_assistant_message`, `background_tasks`, and `session_crons`.
 
-One more, from the transcript format: every content block of an assistant message is its own JSONL record, and `promptId` appears only on *user* records. It can locate where a turn begins; it cannot filter assistant records. Getting that wrong makes "tools called this turn" read as zero on every turn, which would make shape 1 fire constantly. See [`hooks/turn-tools.jq`](hooks/turn-tools.jq).
+Transcript record handling: each content block of an assistant message is written as an independent JSONL record, and `promptId` appears only on user records. Filtering assistant records by `promptId` causes turn tool counts to evaluate to zero every turn, triggering constant false positives on shape 1. See [`hooks/turn-tools.jq`](hooks/turn-tools.jq).
 
 ## Layout
 
 ```text
 stingray/
-├── .claude-plugin/plugin.json   # Claude Code packaging
+├── .claude-plugin/              # plugin.json and marketplace.json
 ├── .coderabbit.yaml             # review instructions, and the dated expiry of auto-review at <10 stars
 ├── .github/workflows/tests.yml  # offline suites + mutation checks, Linux and macOS
 ├── hooks/
 │   ├── hooks.json               # Stop hook registration, explicit timeout
 │   ├── stingray.sh              # the whole thing: shapes, redaction, fail-open paths, nudge
 │   └── turn-tools.jq            # slice one turn out of the transcript
-├── questions.json               # the two Jev criteria — the classifier's contract, pinned to jev-1.13.0
+├── questions.json               # the three Jev criteria — the classifier's contract, pinned to jev-1.13.0
 └── tests/
     ├── acceptance.sh            # drives the real hook offline: no key, no network
     ├── network.sh               # fail-open paths; --live also hits the real endpoint
@@ -294,16 +315,16 @@ stingray/
 ./tests/show-payload.sh 50   # capture what would really be sent, locally
 ```
 
-Every case drives the real hook with real stdin and asserts on observed exit codes and stderr. None of them inspect the source. The live cases deliberately use a synthetic assistant message, so running the suite is not itself a disclosure.
+Tests drive the actual hook with real stdin and assert on exit codes and stderr. No test inspects source code directly. Live tests send synthetic text to avoid leaking conversation data.
 
-Two cases exist to catch one specific implementation mistake each, and `mutants.sh` re-introduces that mistake and requires the case to fail:
+Two test cases guard against specific implementation errors, verified by `mutants.sh`:
 
-- **Case 7** — shape 3's regex must run on the raw message. Its declaration shares a line with a path, because redaction drops such a line whole. An earlier version used a URL and was worthless: URLs are replaced in place, the line survives, and a wrong implementation passed it. That is why the mutation check exists rather than a note in a comment.
-- **Case 9** — a missing `background_tasks` key must not read as "nothing is running", which would turn shape 3 into "block whenever the regex matches".
+- **Case 7:** Shape 3 regex must execute on unredacted text. Its declaration shares a line with a file path; redaction removes lines containing paths entirely. (An earlier test used a URL, which was replaced in-place and failed to detect the bug).
+- **Case 9:** A missing `background_tasks` key must not evaluate as "nothing is running", which would cause shape 3 to trigger whenever the regex matches.
 
 ## Support
 
-stingray is free and needs no account. The one running cost it can incur is yours, not the project's: TypeSafe charges $0.042 per million input tokens, and a turn sends well under a thousand. You can support the maintainer on Patreon.
+stingray is free and requires no account. The only operating cost is your own TypeSafe API usage ($0.042 per million input tokens; an average turn consumes well under 1,000 tokens). You can support the maintainer on Patreon.
 
 [![Support on Patreon](https://img.shields.io/badge/Support_on_Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/cw/Nanako0129/membership)
 
