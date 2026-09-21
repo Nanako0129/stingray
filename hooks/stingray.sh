@@ -44,6 +44,152 @@ STATE_DIR="${STINGRAY_STATE_DIR:-${XDG_STATE_HOME:-${HOME:-}/.local/state}/sting
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
+# ── What counts as a claim to watch something ────────────────────────────────
+#
+# Every count below is over whole assistant messages evaluated the way this
+# function evaluates them, line by line: 2,527 messages from 60 transcripts
+# across 54 sessions. Two earlier versions of this comment were wrong about the
+# unit. The first counted 31,088, which was the corpus split on newlines. The
+# second counted messages but measured them with the newlines replaced by
+# spaces, which lets a verb on one line reach a target on the next — something
+# grep cannot do, since it is line-oriented and ERE cannot cross a newline.
+# Both overstated the shape. These figures come from the real semantics,
+# cross-checked against --watch-test on 41 cases with no disagreement.
+#
+# A claim needs a verb AND a thing being watched. The verbs alone matched topic,
+# not commitment: the shipped regex before this change matched 183 messages, 142
+# of them on a line whose verb had no narrowing at all, and only 3 of those 142
+# carried any first-person marker. The hits included a CV line ("我做過跨 13 個節點的監控
+# 平台"), a quoted customer requirement, and a release announcement whose subject
+# was a poller that used to hang — that last one blocked a real turn with nothing
+# running. Requiring a target takes 183 messages to 52.
+#
+# The target requirement alone dropped 131 of those 183, and most of a sample
+# was genuine: "第 5 輪輪詢中（`bx22jpak0`）。", "監看還架著。". They name no
+# target, so widening cannot reach them — 90 recovers 5 of the 131 and starts
+# admitting fixture lines that must stay quiet.
+#
+# WATCH_ASPECT recovers them a different way: a verb followed within 6 characters
+# by an aspect marker — 中, 在跑, 在背景, 架著, 掛著, 掛上, 開著, 還在, 仍在 — is
+# reporting an activity, whatever else is in the sentence, so it needs no target.
+# It takes the rule from 52 messages to 102, recovering 50 of the 131. All 51
+# lines it alone matches are of one form, "第 N 輪輪詢中（`b8v4feomf`）", and it
+# adds nothing the old bare-verb rule did not already match, so it cannot be
+# looser than what it replaces. It leaves the ten sentences that started this —
+# the eight nominalisations, "無限迴圈…根本未進入輪詢", "pgrep 無 poll 程序" —
+# all quiet.
+#
+# It is a whitelist, and the objection that killed the noun blocklist applies:
+# whitelists accrete too. The argument for this one is that Chinese aspect
+# marking is a closed set while nouns are open. That is a claim about the
+# language, not a measurement, and it is the part of this rule most likely to
+# need a word added later. It needed one immediately: the list as first written
+# had 掛著 and not 掛上, so "那支 PR 的輪詢已經掛上了" came out quiet. Adding it
+# matched no further message in the corpus, which is the test a new word has to
+# pass — a word that widens the rule on real text is a different proposal and
+# belongs with its own measurement.
+#
+# Neither side of that trade generalises. 176 of the old 183 hits and 51 of the
+# new 52 come from a single session out of 54 — an auto-loop that reports polling
+# status every turn. What this corpus establishes is how the rules behave on that
+# habit, not on everyone.
+#
+# The window is 20. Message hits by window: 20 gives 52, 30 gives 53, 40 gives
+# 55, 90 gives 57 — and every width from 30 up also matches a fixture line that
+# must stay quiet. So 20 is where the curve stops paying. It is wide enough for
+# the real reason messages need width, a commit sha or a URL between the verb
+# and its object, as in "輪詢最新 head（7758156）的自動審查結果".
+#
+# `poll` is bracketed by non-identifier characters so a filename does not read
+# as a promise: poll-coderabbit.sh matched the bare form on its own name.
+#
+# Reverse order — target first, then verb — catches the progressive form the
+# forward shape cannot see: "Codex 輪詢中", "監看已在背景掛上". Like everything
+# else here its evidence is one session, so it is kept because the possessive
+# rule makes it cheap, not because the corpus settles it.
+#
+# The reverse order also reads "CI 的輪詢器壞了" as a promise, because there the
+# verb is a noun. A possessive or demonstrative immediately before the verb marks
+# that case: on eight constructed sentences of the shape it catches 8 of 8, and
+# it removes no real hit from the corpus. (On the line-split corpus it appeared
+# to cost 2; that was an artefact of the same unit error.)
+#
+# A nominalised watch that is genuinely in progress — "CI 的監看還掛著" — is
+# refused by the possessive rule and reached by WATCH_ASPECT instead, which is
+# what the aspect marker is for. Those sentences are in tests/watch-fixture.tsv
+# as `nom-cost`, expected watch, and they fail if either half is removed.
+#
+# A possessive or a demonstrative immediately before the verb marks it as a noun
+# — "CI 的輪詢器壞了" is about a poller, not a promise to watch one. That refusal
+# is written into WATCH_FWD and WATCH_REV as a character class rather than as a
+# second pattern applied afterwards, and the difference is not stylistic. Three
+# defects on this branch were the same mistake: an exclusion evaluated separately
+# withdrew a hit it was not describing.
+#
+#   whole-text greps   "Codex 輪詢中" cancelled by "CI 的輪詢器壞了" on another
+#                      line, in either order
+#   compared by line   "那支輪詢器剛修好，我會盯著 CI 的結果" cancelled inside
+#                      one line, the promise killed by the clause before it
+#   inside the match   cannot happen: there is nothing to withdraw
+#
+# All three were found by the session reviewing this branch, the last two in
+# sentences it had written about this branch. The invariant they converge on is
+# that an exclusion may only refuse the hit it describes, and the only way to
+# hold it with grep is to make the refusal part of the hit.
+#
+# It also settles the case that started this: "CI 的輪詢器壞了" and "這個 PR 的
+# 輪詢邏輯有 bug" on one line, where 輪詢 at the end of the first reaches PR at
+# the start of the second. Both verbs carry a possessive, so neither is a hit,
+# and there is no combination left to make. Measured: 99 corpus messages against
+# 102 under the withdrawal version, and the three it drops are one sentence
+# repeated — "那是同一輪 CI 的第二個監看，結果與剛才回報的相同" — a completed
+# watch reported in the past tense.
+#
+# What no arrangement of this reaches: quoting a promise reads as making one.
+# "他說丟掉的那類：第 5 輪輪詢中、監看還架著" matches, correctly by the rule and
+# wrongly by intent, and telling those apart is semantics. Whoever maintains this
+# regex gets blocked by it while discussing it. redact_text does not run before
+# shape 3, so examples inside code fences take part in the match as well.
+#
+# "Round 2 輪詢中", "輪詢在背景" and "輪詢中" were the cost of the target
+# requirement and are recovered by the aspect branch; they stay in the fixture
+# under `short` so that removing that branch fails rather than quietly shrinks
+# the rule. What remains uncovered is a targetless promise with no aspect marker
+# either — "推送、重建、輪詢第十二輪。" — and nothing here reaches it.
+#
+# Last, the honest limit on all of the above. 176 of the old 183 hits and 51 of
+# the new 102 come from one session out of 54, an auto-loop reporting poll status
+# every turn. Outside it the whole corpus holds 7 hits under the old rule and 1
+# under this one. Every comparison in this comment is therefore a statement about
+# that session's writing, and the numbers should not be read as settling how any
+# of these shapes behave in general.
+WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
+WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
+# Not a possessive or a demonstrative. Spelled as a character class so the
+# refusal is part of the match, never a second pattern applied afterwards.
+WATCH_NOPOSS='[^。的支段個]'
+WATCH_FWD="(^|${WATCH_NOPOSS})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
+WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_NOPOSS}(${WATCH_VERB})"
+WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
+
+# The one place that decides. tests/watch-fixture.sh drives this through
+# --watch-test rather than rebuilding the condition, because a second copy of a
+# decision is how a change gets tested against its own mirror image.
+watch_claims() {  # watch_claims <text>; 0 = claims to watch something
+  printf '%s' "$1" | grep -qE "$WATCH_ASPECT" && return 0
+  printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
+  printf '%s' "$1" | grep -qE "$WATCH_REV" && return 0
+  return 1
+}
+
+# Fixture entry point. Answers for one line and exits; reads no stdin, writes no
+# state, makes no request.
+if [ "${1:-}" = "--watch-test" ]; then
+  watch_claims "${2:-}" && { echo watch; exit 0; }
+  echo quiet; exit 0
+fi
+
+
 # ── Mode. Off by default: with no environment variable set, nothing happens. ──
 #
 # Three switches, not one scale. Shape 3 needs no API key and no network, so it
@@ -155,10 +301,9 @@ EOF
 # more, which is 0.5% more than the old pattern caught and 0.05% of all
 # messages. Both numbers, because "+0.5%" on its own reads as a share of the
 # 19,450 and would overstate it tenfold.
-WATCH_RE='監看|監控|盯著|盯住|輪詢|持續追蹤|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|poll(ing)?|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)'
 watch_claimed=0
 watch_unresolved=0
-if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
+if watch_claims "$last"; then
   watch_claimed=1
   # Require an actual array. Neither a missing key nor a null may be read as
   # "nothing is running": has() is true for null, and [ .[]? ] over null counts

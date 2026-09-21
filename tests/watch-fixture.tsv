@@ -1,0 +1,82 @@
+# stingray shape 3 — WATCH_RE regression fixture
+#
+# Columns: expect <TAB> origin <TAB> text
+#   expect = watch   the line promises to watch an external result; WATCH_RE must match
+#   expect = quiet   the line does not; WATCH_RE must not match
+#
+# origin records where the line came from, because a fixture whose provenance is
+# lost becomes a list of strings someone later edits to make the tests pass.
+#   live-fp    an observed false positive: this exact text blocked a real turn
+#   live-tp    a real promise from a real session
+#   control    written for this fixture, labelled by hand
+#   short      a real promise too short to carry a target keyword; see NOTE below
+#              (recovered by the aspect branch, so expected `watch`)
+#   nom-cost   a genuine watch written as a possessive noun phrase ("CI 的監看還
+#              掛著"). The possessive exclusion withdraws it and WATCH_ASPECT
+#              gives it back, so each of these fails if either half is removed.
+#   inline-fp  two nominalisations on one line whose tail and head reach across
+#              the sentence boundary, manufacturing a forward claim neither makes
+#              alone. Observed in a review message about this very rule.
+#   clause-tp  a real promise sharing a line with a clause that merely discusses
+#              a poller. These fail against any rule that evaluates its exclusion
+#              separately from the hit, because the discussing clause withdraws
+#              the promising one.
+#   rev-fp     target-then-verb text that describes a poller rather than promising
+#              to watch one. The reverse branch reads these as claims unless a
+#              possessive or demonstrative marks the verb as a noun; they are
+#              here so that exclusion cannot be removed without a failure.
+#
+# NOTE on `short` and `nom-cost`: both were losses of the target requirement and
+# are recovered by WATCH_ASPECT, so both are labelled `watch`. They keep their
+# original origins so that removing the aspect branch fails here rather than
+# quietly shrinking the rule. Neither class carries a target keyword, so no
+# window width reaches them; the aspect marker is the only thing that does.
+#
+# What is still uncovered, and has no line here because nothing passes it: a
+# targetless promise with no aspect marker either, such as
+# "推送、重建、輪詢第十二輪。"
+
+quiet	live-fp	過去旗標缺少參數時，無限迴圈發生在參數解析階段，根本未進入輪詢
+quiet	live-fp	最危險的是 --timeout ""，實測觀察到它未發起任何輪詢就直接回傳 RESULT=TIMEOUT
+quiet	live-fp	pgrep 無 poll 程序
+quiet	live-fp	誤判現場｜Stop hook 原文，以及實際沒有任何東西在等的驗證（PR 已合併、release 已發、pgrep 無 poll 程序）
+quiet	control	監看這個詞出現在這句話裡，但這句話沒有承諾任何事
+quiet	control	我做過跨 13 個節點的監控平台
+quiet	control	客戶要求監控所有外部介接
+watch	control	安靜監控中
+quiet	control	這支輪詢器過去會卡死，v0.2.3 修好了
+quiet	control	poll-coderabbit.sh 的參數解析有缺陷
+quiet	control	The poller used to hang; polling never started
+watch	live-tp	我會輪詢那個 PR
+watch	live-tp	持續追蹤 CI 直到綠燈
+watch	live-tp	我已經開始輪詢最新 head 的自動審查結果
+watch	live-tp	我會盯著 CodeRabbit 的結果
+watch	control	接下來會監看這個 PR 的 review 狀態
+watch	control	我會等 CodeRabbit 的審查結果回來
+watch	control	I'll poll the CI until it goes green
+watch	control	keep an eye on the review
+watch	short	Round 2 輪詢中
+watch	short	輪詢在背景
+watch	short	輪詢中
+
+quiet	rev-fp	CI 的輪詢器壞了
+quiet	rev-fp	這個 PR 的輪詢邏輯有 bug
+quiet	rev-fp	review 用的輪詢腳本我修好了
+quiet	rev-fp	審查的 poll 腳本參數解析有缺陷
+quiet	rev-fp	CodeRabbit 那支輪詢器過去會卡死
+quiet	rev-fp	build 階段的監控指標掉了
+quiet	rev-fp	deploy 的監看面板壞掉三天了
+quiet	rev-fp	PR 裡那段 polling 的程式碼已經刪掉
+watch	live-tp	Codex 輪詢中
+watch	live-tp	Codex auto loop 監看已在背景掛上，有結果我回報
+
+watch	nom-cost	CI 的監看還掛著
+watch	nom-cost	這個 PR 的輪詢跑在背景
+watch	nom-cost	review 的監看我還開著
+watch	nom-cost	那支 PR 的輪詢已經掛上了
+watch	nom-cost	Codex 對 PR #168 的監看仍在跑
+quiet	inline-fp	反向分支獨力造成的誤判：CI 的輪詢器壞了、這個 PR 的輪詢邏輯有 bug
+quiet	inline-fp	兩句都 quiet：review 用的輪詢腳本我修好了、build 階段的監控指標掉了
+watch	clause-tp	那支輪詢器剛修好，我會盯著 CI 的結果
+watch	clause-tp	這個 PR 的輪詢邏輯有 bug，我現在盯著 CI
+watch	clause-tp	剛開好的監看會盯著 CI 的結果

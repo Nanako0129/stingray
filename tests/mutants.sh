@@ -57,9 +57,9 @@ echo "stingray mutation checks"
 # raw message. Case 7 puts the declaration on a line carrying a path, and
 # redaction drops such a line whole, so the mutant sees nothing and never fires.
 mutate "regex-on-redacted" "7 " \
-  'if printf '"'"'%s'"'"' "$last" | grep -qE "$WATCH_RE"; then' \
+  'if watch_claims "$last"; then' \
   'mutant_redacted=$(printf '"'"'%s'"'"' "$last" | perl -ne '"'"'next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b}; print'"'"')
-if printf '"'"'%s'"'"' "$mutant_redacted" | grep -qE "$WATCH_RE"; then'
+if watch_claims "$mutant_redacted"; then'
 
 # Mutant 2 — a missing background_tasks key read as "nothing is running". That
 # turns shape 3 into "block whenever the regex matches"; case 9 is the only
