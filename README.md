@@ -153,7 +153,8 @@ Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3 needs no key a
 | *(nothing set)* | **Default.** The hook exits immediately. Nothing runs, nothing is sent. |
 | `STINGRAY_SHADOW=1` | Calls Jev, writes a decision record, **never blocks**. Start here. |
 | `STINGRAY=1` | Blocks on shapes 1 and 2. |
-| `STINGRAY_SHAPE3=1` | Blocks on shape 3. **Usable on its own**: the case where nothing is running needs no key and no network, so this alone enables the hook without switching on the two Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
+| `STINGRAY_SHAPE3=1` | Blocks on shape 3's **certain** case — a promise with nothing running or scheduled behind it. Needs no key and no network, so this alone enables the hook without switching on the Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
+| `STINGRAY_SHAPE3_JUDGE=1` | Also lets the **correspondence judgement** block: something is running, and a model says it is not the promised thing. Off even when shape 3 is blocking, because that answer is a probability with a borrowed threshold and no measurement behind it. It records from the first turn either way. |
 
 The cheapest useful configuration is `STINGRAY_SHAPE3=1` by itself: no account, no key, and no request — just the check that a promise to watch something has something running behind it. It still reads the payload and runs a regex, so it is not free, only free of network and of TypeSafe.
 
@@ -167,9 +168,9 @@ Three fields, and only when a key is configured:
 |---|---|
 | `final_text` | the last assistant message, redacted, then truncated to the last 2400 **bytes** — about 800 CJK characters, but roughly 2400 characters of plain ASCII, so an English turn sends about three times the text the accuracy figures were measured on |
 | `tools` | tool **names** and a count for this turn — never arguments |
-| `background` | for each background task and scheduled cron: its status and its **description**, redacted through the same pipeline as the message. Never command lines. |
+| `background` | for each background task: its status and its **description**. For each scheduled cron: its **prompt**, the instruction written for it. Both go through the same redaction as the message, with credential shapes stripped first. Command lines are never sent. |
 
-Your prompts are never sent. Tool arguments, file contents and diffs are never sent.
+Your prompts to Claude are never sent. Tool arguments, file contents and diffs are never sent. A **scheduled cron's prompt is sent**, because judging whether scheduled work matches what was promised means reading what it was told to do — that is the one prompt-shaped thing that leaves.
 
 Redaction removes fenced code, block quotes, inline code and URLs, drops any line carrying an absolute path, a relative path or a filename, and masks commit SHAs, issue numbers and project names. Project names are *derived*, not hardcoded: the directory the hook reports and the repository its git remote points at. Sibling projects you mention by name are not discoverable from there — list them in `STINGRAY_REDACT_WORDS` if you want them masked too.
 
@@ -216,7 +217,8 @@ Hence: off by default, `STINGRAY_SHADOW=1` as the first setting, and **two indep
 | Judge | Bar before it may block |
 |---|---|
 | Shapes 1 and 2 (`STINGRAY=1`) | ≥ 40 shadow records, ≥ 70% precision on your own reading, ≤ 3 wrong nudges per 100 stop points, τ placed in the empty band between the score clusters with the derivation written beside it |
-| Shape 3 (`STINGRAY_SHAPE3=1`) | ≥ 20 shadow records, ≥ 70% precision |
+| Shape 3, certain case (`STINGRAY_SHAPE3=1`) | none — arithmetic, no threshold to calibrate |
+| Shape 3, correspondence (`STINGRAY_SHAPE3_JUDGE=1`) | ≥ 20 shadow records, ≥ 70% precision on your own reading |
 
 Records land in `$STINGRAY_STATE_DIR/decisions.jsonl`, one line per decision, each carrying `qset_hash` — the hash of `questions.json`, not of the request. Editing one line of criteria moves the whole score distribution, so a threshold calibrated under the old wording is void, and a hash that changed every turn could not show you that. It hashed the request body until CodeRabbit pointed out that this made it useless for the one job it has.
 

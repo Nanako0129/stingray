@@ -60,9 +60,19 @@ MODE="off"
 [ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
 [ "$MODE" = "off" ] && exit 0
 
-# Shape 3 may block in active (with its own flag) or in shape3-only mode.
+# Shape 3 may block in active (with its own flag) or in shape3-only mode. This
+# covers only the certain case: a promise with nothing running or scheduled
+# behind it, which arithmetic settles.
 shape3_blocks=0
 [ "${STINGRAY_SHAPE3:-}" = "1" ] && [ "$MODE" != "shadow" ] && shape3_blocks=1
+
+# The correspondence judgement is a separate switch, off even when shape 3 is
+# blocking. It is a model answer with a borrowed threshold and no measurement
+# behind it, and shape 3's whole claim was that it blocks only when the answer
+# is certain. Folding it in would have removed that quietly. It records from the
+# first turn; it may block once the bar in the README is met.
+watch_judge_blocks=0
+[ "${STINGRAY_SHAPE3_JUDGE:-}" = "1" ] && [ "$shape3_blocks" = "1" ] && watch_judge_blocks=1
 # The Jev judgements may block only in active mode.
 jev_blocks=0
 [ "$MODE" = "active" ] && jev_blocks=1
@@ -226,7 +236,15 @@ fi
 # purpose: a second copy of a redactor already drifted from this one here and
 # dropped a rule the README still promised.
 redact_text() {
+  # Credential shapes first: an Authorization header or a token-looking field
+  # must not survive into the request, and the outgoing scan covers only sk-,
+  # GitHub, AWS and PEM. A cron prompt is free text written by the model and can
+  # carry a curl command with a header in it.
   perl -0777 -pe '
+    s/\bAuthorization\s*:\s*\S+(\s+\S+)?/Authorization: <redacted>/gi;
+    s/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/$1 <redacted>/g;
+    s/("?)(?:api[_-]?key|auth[_-]?token|access[_-]?token|secret|password|passwd|pwd)\1\s*[:=]\s*"?[^"\s,;}]{6,}"?/<redacted credential>/gi;
+  ' | perl -0777 -pe '
     s/```.*?```/ /gs;                      # fenced code blocks (paired)
     s/^\s*>.*$/ /mg;                       # block quotes
     s/`[^`\n]{1,200}`/ /g;                 # inline code
@@ -351,7 +369,7 @@ wm=$(jq -r '.answers.watch_mismatch.noul
   | select(type == "number" and . >= 0 and . <= 1)' "$out" 2>/dev/null)
 if [ "$watch_unresolved" = "1" ] && [ -n "${wm:-}" ]; then
   if awk -v v="$wm" -v t="$TAU" 'BEGIN{exit !(v >= t)}'; then
-    if [ "$shape3_blocks" = "1" ]; then
+    if [ "$watch_judge_blocks" = "1" ]; then
       log unwatched "$wm" true
       nudge "it promises to watch an external result, and nothing that is running corresponds to it"
     fi
