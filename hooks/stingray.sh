@@ -44,6 +44,63 @@ STATE_DIR="${STINGRAY_STATE_DIR:-${XDG_STATE_HOME:-${HOME:-}/.local/state}/sting
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
+# ── What counts as a claim to watch something ────────────────────────────────
+#
+# A claim needs a verb AND a thing being watched. The verbs alone were matching
+# topic, not commitment: across 31,088 assistant text blocks from real
+# transcripts, 476 lines matched, 401 of them (84%) through a bare verb with no
+# narrowing, and only 15 of those 401 carried any first-person marker. The hits
+# included a CV line ("我做過跨 13 個節點的監控平台"), a quoted requirement, and
+# a release announcement whose subject was a poller that used to hang — that
+# last one blocked a real turn with nothing running. Requiring a target within
+# 20 characters takes those 401 to 68. The window is 20 rather than 12 because
+# all seven lines 12 drops and 20 keeps are genuine: real messages put a commit
+# sha or a URL between the verb and its object.
+#
+# `poll` is bracketed by non-identifier characters so a filename does not read
+# as a promise: poll-coderabbit.sh matched the bare form on its own name.
+#
+# Reverse order — target first, then verb — recovers the progressive form that
+# the forward shape cannot see: "Codex 輪詢中", "監看已掛上". Of 63 reverse-only
+# hits in the corpus, 36 are that form against a single nominalisation, so the
+# branch earns its place. It also reads "CI 的輪詢器壞了" as a promise, because
+# there the verb is a noun. A possessive or demonstrative immediately before the
+# verb marks exactly that case: on eight constructed sentences of that shape it
+# caught 8 of 8, and it cost 2 of the 63 real hits.
+#
+# ERE has no lookbehind, so the exclusion cannot live inside WATCH_RE. It is a
+# separate match, and it only applies when nothing else matched — a line that
+# also carries a forward claim keeps it.
+#
+# The cost that remains is not a tuning problem. "Round 2 輪詢中", "輪詢在背景"
+# and "輪詢中" name no target at all, so no window recovers them; they are in
+# tests/watch-fixture.tsv as `short` and the runner reports them as COST rather
+# than letting the omission pass as success.
+WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
+WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
+WATCH_FWD="(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
+WATCH_REV="(${WATCH_TARGET})[^。]{0,20}(${WATCH_VERB})"
+WATCH_REV_NOUN="(${WATCH_TARGET})[^。]{0,20}(的|那支|那段|那個|這支|這段) ?(${WATCH_VERB})"
+WATCH_RE="${WATCH_FWD}|${WATCH_REV}"
+
+# The one place that decides. tests/watch-fixture.sh drives this through
+# --watch-test rather than rebuilding the condition, because a second copy of a
+# decision is how a change gets tested against its own mirror image.
+watch_claims() {  # watch_claims <text>; 0 = claims to watch something
+  printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
+  printf '%s' "$1" | grep -qE "$WATCH_REV" || return 1
+  printf '%s' "$1" | grep -qE "$WATCH_REV_NOUN" && return 1
+  return 0
+}
+
+# Fixture entry point. Answers for one line and exits; reads no stdin, writes no
+# state, makes no request.
+if [ "${1:-}" = "--watch-test" ]; then
+  watch_claims "${2:-}" && { echo watch; exit 0; }
+  echo quiet; exit 0
+fi
+
+
 # ── Mode. Off by default: with no environment variable set, nothing happens. ──
 #
 # Three switches, not one scale. Shape 3 needs no API key and no network, so it
@@ -155,31 +212,9 @@ EOF
 # more, which is 0.5% more than the old pattern caught and 0.05% of all
 # messages. Both numbers, because "+0.5%" on its own reads as a share of the
 # 19,450 and would overstate it tenfold.
-# A watch claim needs a verb AND a thing being watched. The verbs alone were
-# matching topic, not commitment: across 31,088 assistant text blocks from real
-# transcripts, 476 lines matched, 401 of them (84%) through a bare verb with no
-# narrowing, and only 15 of those 401 carried any first-person marker. The hits
-# included a CV line ("我做過跨 13 個節點的監控平台"), a quoted requirement, and
-# a release announcement whose subject was a poller that used to hang — that
-# last one blocked a real turn with nothing running. Requiring a target within
-# 20 characters takes 401 to 68, and every one of the 7 lines that 12 would
-# have dropped and 20 keeps is a genuine watch statement, which is why the
-# window is 20: real messages put a commit sha or a URL between the verb and
-# its object.
-#
-# `poll` is bracketed by non-identifier characters so a filename does not read
-# as a promise: poll-coderabbit.sh matched the bare form on its own name.
-#
-# The cost is real and is not a tuning problem. "Round 2 輪詢中", "輪詢在背景"
-# and "輪詢中" name no target at all, so no window recovers them; they are in
-# tests/watch-fixture.tsv as `short` and the runner reports them as COST rather
-# than letting the omission pass as success.
-WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
-WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
-WATCH_RE="(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|(${WATCH_TARGET})[^。]{0,20}(${WATCH_VERB})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
 watch_claimed=0
 watch_unresolved=0
-if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
+if watch_claims "$last"; then
   watch_claimed=1
   # Require an actual array. Neither a missing key nor a null may be read as
   # "nothing is running": has() is true for null, and [ .[]? ] over null counts

@@ -10,6 +10,10 @@
 #   live-tp    a real promise from a real session
 #   control    written for this fixture, labelled by hand
 #   short      a real promise too short to carry a target keyword; see NOTE below
+#   rev-fp     target-then-verb text that describes a poller rather than promising
+#              to watch one. The reverse branch reads these as claims unless a
+#              possessive or demonstrative marks the verb as a noun; they are
+#              here so that exclusion cannot be removed without a failure.
 #
 # NOTE on `short`: these are genuine promises that the "bare keyword + target
 # keyword within N characters" shape cannot recover at ANY window size, because
@@ -39,3 +43,14 @@ watch	control	keep an eye on the review
 watch	short	Round 2 輪詢中
 watch	short	輪詢在背景
 watch	short	輪詢中
+
+quiet	rev-fp	CI 的輪詢器壞了
+quiet	rev-fp	這個 PR 的輪詢邏輯有 bug
+quiet	rev-fp	review 用的輪詢腳本我修好了
+quiet	rev-fp	審查的 poll 腳本參數解析有缺陷
+quiet	rev-fp	CodeRabbit 那支輪詢器過去會卡死
+quiet	rev-fp	build 階段的監控指標掉了
+quiet	rev-fp	deploy 的監看面板壞掉三天了
+quiet	rev-fp	PR 裡那段 polling 的程式碼已經刪掉
+watch	live-tp	Codex 輪詢中
+watch	live-tp	Codex auto loop 監看已在背景掛上，有結果我回報
