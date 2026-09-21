@@ -10,6 +10,14 @@
 #   ./tests/network.sh          # A and B only
 #   ./tests/network.sh --live   # also C (bad key) and D (latency, needs a key)
 set -u
+# Every case drives the hook with the environment it means to test. A shell
+# that actually runs the plugin exports STINGRAY_* too, and those leak into the
+# cases that deliberately set none — measured 2026-09-21: with STINGRAY=1 and
+# STINGRAY_SHAPE3_JUDGE=1 exported, this suite reported 7 failures and
+# network.sh 1, all spurious. Derive the list from the environment rather than
+# spelling it out, so a switch added later is covered without editing this.
+for v in $(env | sed -n 's/^\(STINGRAY[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/../hooks/stingray.sh"
 TMP="$(mktemp -d)"
