@@ -119,9 +119,26 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # the aspect marker is for. Those sentences are in tests/watch-fixture.tsv as
 # `nom-cost`, expected watch, and they fail if either half is removed.
 #
-# ERE has no lookbehind, so the exclusion cannot live inside WATCH_RE. It is a
-# separate match, and it only applies when nothing else matched — a line that
-# also carries a forward claim keeps it.
+# The same possessive exclusion applies to the forward branch, and for a reason
+# that only shows up in this repository's own writing. "CI 的輪詢器壞了" and
+# "這個 PR 的輪詢邏輯有 bug" are each withdrawn on their own. Put them on one
+# line, as anyone listing examples does, and 輪詢 at the end of the first reaches
+# PR at the start of the second: two nominalisations side by side manufacture a
+# forward claim that neither makes alone. Found by the session reviewing this
+# branch, in a message it had written about this branch. Excluding it costs 0 of
+# the 102 corpus hits and changes no fixture line.
+#
+# What stays is not fixable here: quoting a promise reads as making one.
+# "他說丟掉的那類：第 5 輪輪詢中、監看還架著" matches, correctly by the rule and
+# wrongly by intent, and telling the two apart is semantics. Whoever maintains
+# this regex will be blocked by it while discussing it — that is the expected
+# behaviour, not a fault, and it is written here because the other session spent
+# rounds establishing it. redact_text does not run before shape 3 (see below), so
+# examples inside code fences take part in the match too.
+#
+# ERE has no lookbehind, so neither exclusion can live inside its branch. Both
+# are separate matches compared by line number, so an exclusion can only withdraw
+# a hit on the same line it appears.
 #
 # "Round 2 輪詢中", "輪詢在背景" and "輪詢中" were the cost of the target
 # requirement and are recovered by the aspect branch; they stay in the fixture
@@ -140,6 +157,7 @@ WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])po
 WATCH_FWD="(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
 WATCH_REV="(${WATCH_TARGET})[^。]{0,20}(${WATCH_VERB})"
 WATCH_REV_NOUN="(${WATCH_TARGET})[^。]{0,20}(的|那支|那段|那個|這支|這段) ?(${WATCH_VERB})"
+WATCH_FWD_NOUN="(的|那支|那段|那個|這支|這段) ?(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})"
 WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
 
 # The one place that decides. tests/watch-fixture.sh drives this through
@@ -158,8 +176,15 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
   # and its target on the next never combined into a hit; only the cancellation
   # crossed lines. The forward branch was never exposed: it returns on the first
   # match and nothing can withdraw it.
-  printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
   printf '%s' "$1" | grep -qE "$WATCH_ASPECT" && return 0
+  fwd=$(printf '%s' "$1" | grep -nE "$WATCH_FWD" | cut -d: -f1)
+  fnoun=$(printf '%s' "$1" | grep -nE "$WATCH_FWD_NOUN" | cut -d: -f1)
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    printf '%s\n' "$fnoun" | grep -qx "$n" || return 0
+  done <<EOF
+$fwd
+EOF
   rev=$(printf '%s' "$1" | grep -nE "$WATCH_REV" | cut -d: -f1)
   [ -n "$rev" ] || return 1
   noun=$(printf '%s' "$1" | grep -nE "$WATCH_REV_NOUN" | cut -d: -f1)
