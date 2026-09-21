@@ -48,7 +48,11 @@ claude:  [edits the config, runs the suite]
 | 2 | `broken_promise` — declared an action the turn's tool calls don't account for | Jev |
 | 3 | `unwatched` — promised to watch CI or a PR review with nothing polling | computed locally |
 
-Shape 3 never reaches a model. Its two halves are a declaration regex over the assistant's own words and the `background_tasks` field the hook is already handed — both exact. The Jev question it replaced scored 20.0% precision at 66.7% false-positive rate against the same corpus; moving it to arithmetic was not a cost.
+Shape 3 is settled by arithmetic where arithmetic can settle it, and only then by a model. If a turn promises to watch something and **nothing at all** is running or scheduled, no judgement is required: that promise has no mechanism behind it. That case needs no key and no network, which is why `STINGRAY_SHAPE3=1` on its own is still the cheapest useful configuration.
+
+When something *is* running, counting stops being an answer. A build running while the turn promised to follow a PR review satisfies "something is running" and misses the broken promise completely. Whether the work that is running corresponds to the work that was promised is a judgement, so that case — and only that case — goes to Jev, with the closing message and the running work side by side. Without a key it is left alone, which is the behaviour you have today.
+
+An earlier version of this section said both halves were exact. That was wrong about one of them: `background_tasks` is an exact field, but "did it claim to watch something" is a language judgement approximated by a regex, and the first live run found it missing the most ordinary phrasing.
 
 The nudge is one fixed paragraph, not a generated critique. It offers three ways out — finish the work, launch the polling, or name the decision you are blocked on — because a turn stops half-done for all three reasons and only the model knows which.
 
@@ -149,7 +153,7 @@ Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3 needs no key a
 | *(nothing set)* | **Default.** The hook exits immediately. Nothing runs, nothing is sent. |
 | `STINGRAY_SHADOW=1` | Calls Jev, writes a decision record, **never blocks**. Start here. |
 | `STINGRAY=1` | Blocks on shapes 1 and 2. |
-| `STINGRAY_SHAPE3=1` | Blocks on shape 3. **Usable on its own**: shape 3 needs no key and no network, so this alone enables the hook without switching on the two Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
+| `STINGRAY_SHAPE3=1` | Blocks on shape 3. **Usable on its own**: the case where nothing is running needs no key and no network, so this alone enables the hook without switching on the two Jev judgements, which have their own bar to clear — see [Calibration](#calibration). `STINGRAY_SHADOW=1` outranks it. |
 
 The cheapest useful configuration is `STINGRAY_SHAPE3=1` by itself: no account, no key, and no request — just the check that a promise to watch something has something running behind it. It still reads the payload and runs a regex, so it is not free, only free of network and of TypeSafe.
 
@@ -163,7 +167,7 @@ Three fields, and only when a key is configured:
 |---|---|
 | `final_text` | the last assistant message, redacted, then truncated to the last 2400 **bytes** — about 800 CJK characters, but roughly 2400 characters of plain ASCII, so an English turn sends about three times the text the accuracy figures were measured on |
 | `tools` | tool **names** and a count for this turn — never arguments |
-| `background` | background task **statuses** — never descriptions, never command lines |
+| `background` | for each background task and scheduled cron: its status and its **description**, redacted through the same pipeline as the message. Never command lines. |
 
 Your prompts are never sent. Tool arguments, file contents and diffs are never sent.
 

@@ -174,6 +174,24 @@ do
     2 "nothing is running" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 done
 
+# 18. A cron doing the polling is a kept promise. session_crons went unread
+#     until a probe showed shape 3 blocking a turn whose cron was polling
+#     exactly the thing the turn promised to watch.
+check "18 cron is polling → pass" \
+  "$(jq -cn --arg m "$WATCH_PLAIN" '{session_id:"sess-18",prompt_id:"p",
+      transcript_path:"/nonexistent/t.jsonl",cwd:"/tmp",permission_mode:"default",
+      hook_event_name:"Stop",stop_hook_active:false,last_assistant_message:$m,
+      background_tasks:[],
+      session_crons:[{id:"c1",schedule:"*/5 * * * *",prompt:"poll CodeRabbit"}]}')" \
+  0 "-" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+
+# 19. Something unrelated running is not an answer either way, so with no key
+#     the turn is left alone — today's behaviour. The correspondence judgement
+#     that resolves it lives in network.sh, where a stub can answer.
+check "19 unrelated task, no key → pass" \
+  "$(mk "$WATCH_PLAIN" '[{"id":"b1","type":"shell","status":"running","description":"build","command":"make"}]' sess-19)" \
+  0 "-" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+
 # 11. Block budget, independent of stop_hook_active. Feed the same blocking
 #     case four times with stop_hook_active pinned false, as if the harness
 #     guard had been reset; the fourth must refuse to block.
