@@ -64,15 +64,30 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # was a poller that used to hang — that last one blocked a real turn with nothing
 # running. Requiring a target takes 183 messages to 52.
 #
-# That is a large trade, and the corpus does not let it look small. 131 messages
-# the old rule matched no longer match, and reading a sample of them, most are
-# genuine: "第 5 輪輪詢中（`bx22jpak0`）。", "推送、重建、輪詢第十二輪。",
-# "監看還架著。". They name no target, so the shape cannot see them — widening
-# the window to 90 recovers 5 of the 131 and starts admitting fixture lines that
-# must stay quiet. The precision this buys is not theoretical: two live blocks in
-# another session came from text merely discussing a poller. But anyone reading
-# "3 short-form promises dropped" in the fixture output should read it against
-# this paragraph, not instead of it.
+# The target requirement alone dropped 131 of those 183, and most of a sample
+# was genuine: "第 5 輪輪詢中（`bx22jpak0`）。", "監看還架著。". They name no
+# target, so widening cannot reach them — 90 recovers 5 of the 131 and starts
+# admitting fixture lines that must stay quiet.
+#
+# WATCH_ASPECT recovers them a different way: a verb followed within 6 characters
+# by an aspect marker — 中, 在跑, 在背景, 架著, 掛著, 掛上, 開著, 還在, 仍在 — is
+# reporting an activity, whatever else is in the sentence, so it needs no target.
+# It takes the rule from 52 messages to 102, recovering 50 of the 131. All 51
+# lines it alone matches are of one form, "第 N 輪輪詢中（`b8v4feomf`）", and it
+# adds nothing the old bare-verb rule did not already match, so it cannot be
+# looser than what it replaces. It leaves the ten sentences that started this —
+# the eight nominalisations, "無限迴圈…根本未進入輪詢", "pgrep 無 poll 程序" —
+# all quiet.
+#
+# It is a whitelist, and the objection that killed the noun blocklist applies:
+# whitelists accrete too. The argument for this one is that Chinese aspect
+# marking is a closed set while nouns are open. That is a claim about the
+# language, not a measurement, and it is the part of this rule most likely to
+# need a word added later. It needed one immediately: the list as first written
+# had 掛著 and not 掛上, so "那支 PR 的輪詢已經掛上了" came out quiet. Adding it
+# matched no further message in the corpus, which is the test a new word has to
+# pass — a word that widens the rule on real text is a different proposal and
+# belongs with its own measurement.
 #
 # Neither side of that trade generalises. 176 of the old 183 hits and 51 of the
 # new 52 come from a single session out of 54 — an auto-loop that reports polling
@@ -99,27 +114,33 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # it removes no real hit from the corpus. (On the line-split corpus it appeared
 # to cost 2; that was an artefact of the same unit error.)
 #
-# What the exclusion cannot separate is a nominalised watch that is genuinely in
-# progress — "CI 的監看還掛著" reads as quiet. That is a real miss, not a bug in
-# the rule: 監看 there IS a noun, and telling the two apart needs the aspect
-# marker after it, which is a whitelist that would accrete exactly as a noun
-# blocklist would. Those sentences are in tests/watch-fixture.tsv as `nom-cost`,
-# expected quiet, so the trade-off is recorded rather than rediscovered.
+# A nominalised watch that is genuinely in progress — "CI 的監看還掛著" — is
+# withdrawn by the exclusion and then recovered by WATCH_ASPECT, which is what
+# the aspect marker is for. Those sentences are in tests/watch-fixture.tsv as
+# `nom-cost`, expected watch, and they fail if either half is removed.
 #
 # ERE has no lookbehind, so the exclusion cannot live inside WATCH_RE. It is a
 # separate match, and it only applies when nothing else matched — a line that
 # also carries a forward claim keeps it.
 #
-# The cost that remains beyond that is not a tuning problem. "Round 2 輪詢中",
-# "輪詢在背景" and "輪詢中" name no target at all, so no window recovers them;
-# they are in the fixture as `short` and the runner reports them as COST rather
-# than letting the omission pass as success.
+# "Round 2 輪詢中", "輪詢在背景" and "輪詢中" were the cost of the target
+# requirement and are recovered by the aspect branch; they stay in the fixture
+# under `short` so that removing that branch fails rather than quietly shrinks
+# the rule. What remains uncovered is a targetless promise with no aspect marker
+# either — "推送、重建、輪詢第十二輪。" — and nothing here reaches it.
+#
+# Last, the honest limit on all of the above. 176 of the old 183 hits and 51 of
+# the new 102 come from one session out of 54, an auto-loop reporting poll status
+# every turn. Outside it the whole corpus holds 7 hits under the old rule and 1
+# under this one. Every comparison in this comment is therefore a statement about
+# that session's writing, and the numbers should not be read as settling how any
+# of these shapes behave in general.
 WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
 WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
 WATCH_FWD="(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
 WATCH_REV="(${WATCH_TARGET})[^。]{0,20}(${WATCH_VERB})"
 WATCH_REV_NOUN="(${WATCH_TARGET})[^。]{0,20}(的|那支|那段|那個|這支|這段) ?(${WATCH_VERB})"
-WATCH_RE="${WATCH_FWD}|${WATCH_REV}"
+WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
 
 # The one place that decides. tests/watch-fixture.sh drives this through
 # --watch-test rather than rebuilding the condition, because a second copy of a
@@ -138,6 +159,7 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
   # crossed lines. The forward branch was never exposed: it returns on the first
   # match and nothing can withdraw it.
   printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
+  printf '%s' "$1" | grep -qE "$WATCH_ASPECT" && return 0
   rev=$(printf '%s' "$1" | grep -nE "$WATCH_REV" | cut -d: -f1)
   [ -n "$rev" ] || return 1
   noun=$(printf '%s' "$1" | grep -nE "$WATCH_REV_NOUN" | cut -d: -f1)

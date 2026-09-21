@@ -10,28 +10,24 @@
 #   live-tp    a real promise from a real session
 #   control    written for this fixture, labelled by hand
 #   short      a real promise too short to carry a target keyword; see NOTE below
+#              (recovered by the aspect branch, so expected `watch`)
 #   nom-cost   a genuine watch written as a possessive noun phrase ("CI 的監看還
-#              掛著"). The possessive exclusion reads these as quiet and that is
-#              accepted: separating them needs an aspect whitelist after the verb,
-#              which accretes the way a noun blocklist does. Listed as `quiet`
-#              because that is the shipped behaviour — writing the wish as the
-#              expectation only teaches the next person to edit the test green.
+#              掛著"). The possessive exclusion withdraws it and WATCH_ASPECT
+#              gives it back, so each of these fails if either half is removed.
 #   rev-fp     target-then-verb text that describes a poller rather than promising
 #              to watch one. The reverse branch reads these as claims unless a
 #              possessive or demonstrative marks the verb as a noun; they are
 #              here so that exclusion cannot be removed without a failure.
 #
-# NOTE on `short`: THREE LINES HERE ARE NOT THE SIZE OF THIS COST. On the corpus
-# in hooks/stingray.sh the target requirement drops 131 of the 183 messages the
-# previous rule matched, and most of those are genuine short-form reports with no
-# target in them. The three below are representatives, not a total. See the
-# paragraph beginning "That is a large trade" in the hook.
+# NOTE on `short` and `nom-cost`: both were losses of the target requirement and
+# are recovered by WATCH_ASPECT, so both are labelled `watch`. They keep their
+# original origins so that removing the aspect branch fails here rather than
+# quietly shrinking the rule. Neither class carries a target keyword, so no
+# window width reaches them; the aspect marker is the only thing that does.
 #
-# These are genuine promises that the "bare keyword + target
-# keyword within N characters" shape cannot recover at ANY window size, because
-# the sentence contains no target keyword at all. Widening 12 -> 20 changes
-# nothing for them (measured). They are listed as `watch` so the cost of that
-# shape stays visible in the run output instead of being quietly accepted.
+# What is still uncovered, and has no line here because nothing passes it: a
+# targetless promise with no aspect marker either, such as
+# "推送、重建、輪詢第十二輪。"
 
 quiet	live-fp	過去旗標缺少參數時，無限迴圈發生在參數解析階段，根本未進入輪詢
 quiet	live-fp	最危險的是 --timeout ""，實測觀察到它未發起任何輪詢就直接回傳 RESULT=TIMEOUT
@@ -40,7 +36,7 @@ quiet	live-fp	誤判現場｜Stop hook 原文，以及實際沒有任何東西�
 quiet	control	監看這個詞出現在這句話裡，但這句話沒有承諾任何事
 quiet	control	我做過跨 13 個節點的監控平台
 quiet	control	客戶要求監控所有外部介接
-quiet	control	安靜監控中
+watch	control	安靜監控中
 quiet	control	這支輪詢器過去會卡死，v0.2.3 修好了
 quiet	control	poll-coderabbit.sh 的參數解析有缺陷
 quiet	control	The poller used to hang; polling never started
@@ -67,8 +63,8 @@ quiet	rev-fp	PR 裡那段 polling 的程式碼已經刪掉
 watch	live-tp	Codex 輪詢中
 watch	live-tp	Codex auto loop 監看已在背景掛上，有結果我回報
 
-quiet	nom-cost	CI 的監看還掛著
-quiet	nom-cost	這個 PR 的輪詢跑在背景
-quiet	nom-cost	review 的監看我還開著
-quiet	nom-cost	那支 PR 的輪詢已經掛上了
-quiet	nom-cost	Codex 對 PR #168 的監看仍在跑
+watch	nom-cost	CI 的監看還掛著
+watch	nom-cost	這個 PR 的輪詢跑在背景
+watch	nom-cost	review 的監看我還開著
+watch	nom-cost	那支 PR 的輪詢已經掛上了
+watch	nom-cost	Codex 對 PR #168 的監看仍在跑
