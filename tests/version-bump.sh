@@ -10,14 +10,26 @@
 # change shipped under an unchanged version does not reach any existing
 # install, and the tool reports success while it happens.
 #
-# Scope is the content that actually gets installed. A README or workflow
-# change ships nothing to a running hook and needs no bump.
+# Scope is everything an install actually receives: the hook, the question set,
+# and the manifest itself. The manifest is included because the plugin manager
+# shows its metadata and refreshes it on the same version-pinned path, so a
+# description edit under an unchanged version is stale for the same reason a
+# hook edit is. A README or workflow change ships nothing and needs no bump; a
+# guard firing on those would be edited around rather than obeyed.
 set -uo pipefail
 
 BASE="${1:-}"
 [ -n "$BASE" ] || { echo "usage: $0 <base-ref>" >&2; exit 2; }
 
-changed=$(git diff --name-only "$BASE"...HEAD -- hooks questions.json)
+# An unresolvable base ref makes git diff fail with empty stdout, which is
+# indistinguishable from "nothing changed" unless the status is read. Silently
+# skipping the check is the failure direction this guard exists to prevent.
+if ! changed=$(git diff --name-only "$BASE"...HEAD -- \
+     .claude-plugin/plugin.json hooks questions.json); then
+  echo "version-bump: cannot resolve base ref '$BASE'" >&2
+  exit 2
+fi
+
 if [ -z "$changed" ]; then
   echo "version-bump: no shipped file changed; no bump required"
   exit 0
