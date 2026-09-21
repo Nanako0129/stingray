@@ -61,3 +61,37 @@ jobs:
       - name: Guards still guard (mutation check)
         run: bash tests/mutants.sh
 
+  # `claude plugin update` keys on the version string alone. A hook change under
+  # an unchanged version reaches no existing install while the tool reports
+  # success, so the version is enforced rather than remembered.
+  version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # the check needs the merge base, not just HEAD
+
+      - name: Shipped changes carry a version bump
+        env:
+          BASE: ${{ github.base_ref }}
+        run: bash tests/version-bump.sh "origin/$BASE"
+
+      # The same reasoning as the mutation step above: a guard that cannot fail
+      # is worse than no guard. Rebuild the exact condition it exists to catch —
+      # a hook edit with the base version restored — and require a non-zero exit.
+      - name: The version guard can fail (mutation check)
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          base_v=$(git show "origin/$BASE:.claude-plugin/plugin.json" | jq -r .version)
+          jq --arg v "$base_v" '.version=$v' .claude-plugin/plugin.json > p.json
+          mv p.json .claude-plugin/plugin.json
+          printf '\n# mutation probe\n' >> hooks/stingray.sh
+          git -c user.email=ci@local -c user.name=ci commit -aqm probe
+          if bash tests/version-bump.sh "origin/$BASE"; then
+            echo "version-bump.sh passed a hook change with no bump"
+            exit 1
+          fi
+          echo "guard failed as required"

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "stingray",
   "displayName": "stingray",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Stop hook that catches a turn stopping half-done — no action taken, a declared action never carried out, or a promise to watch CI with nothing actually polling — and pushes Claude back to finish it.",
   "author": {
     "name": "Nanako0129",
