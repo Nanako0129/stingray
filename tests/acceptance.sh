@@ -140,6 +140,20 @@ check "16 background_tasks null → pass" \
   "$(mk "$WATCH_PLAIN" '[]' sess-16 | jq -c '.background_tasks=null')" 0 "no key" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
+# 17. Phrasings the first live shadow run showed were missed. The waiting verb
+#     takes a suffix (等著 / 等待) and the outcome word is not always one of the
+#     first four that were tried, so each of these was a real positive that
+#     shape 3 recorded nothing for.
+for phrase in \
+  "沒問題，我會等著 CodeRabbit 的審查結果。" \
+  "我會等 CI 跑完再回報。" \
+  "我會等待 CodeRabbit 的結果。" \
+  "等審查結果回來我告訴你。"
+do
+  check "17 watch phrasing: ${phrase:0:14}…" "$(mk "$phrase" '[]' "sess-17-$RANDOM")" \
+    2 "nothing is running" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+done
+
 # 11. Block budget, independent of stop_hook_active. Feed the same blocking
 #     case four times with stop_hook_active pinned false, as if the harness
 #     guard had been reset; the fourth must refuse to block.
