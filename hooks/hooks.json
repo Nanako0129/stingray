@@ -1,0 +1,16 @@
+{
+  "description": "stingray — nudge Claude back to work when a turn stops half-done.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stingray.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

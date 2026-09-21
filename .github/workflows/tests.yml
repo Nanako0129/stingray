@@ -1,0 +1,63 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    # Both runners, because the hook is bash + jq + curl + perl and the perl
+    # redaction differs subtly between BSD and GNU userland.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Pinned to an immutable commit SHA. A tag is mutable: retargeting v6
+      # would run attacker-controlled code in this workflow before any test
+      # step. persist-credentials is off because nothing here pushes, and a
+      # checkout that leaves a token in .git/config hands it to every later
+      # step (zizmor: artipacked).
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Tools present
+        run: |
+          for t in bash jq curl perl python3; do
+            command -v "$t" >/dev/null || { echo "missing: $t"; exit 1; }
+          done
+
+      - name: Shell syntax
+        run: |
+          bash -n hooks/stingray.sh
+          bash -n tests/acceptance.sh
+          bash -n tests/network.sh
+          bash -n tests/show-payload.sh
+
+      - name: questions.json is valid and pins a model contract
+        run: |
+          jq -e 'to_entries | all(.value.type == "noul" and (.value.criteria | has("true") and has("false")))' \
+            questions.json >/dev/null
+
+      # No API key, no network. This is the whole gate: if the acceptance suite
+      # needed a secret it could not run on a fork's pull request, which is
+      # exactly where it is most worth running.
+      - name: Acceptance (offline)
+        run: bash tests/acceptance.sh
+
+      # The stub server is local, so the fail-open paths are covered here too.
+      - name: Fail-open paths (local stub)
+        run: bash tests/network.sh
+
+      # Case 7 and case 9 each exist to catch one implementation mistake. A test
+      # that cannot fail is worse than no test, so CI re-derives that they still
+      # fail against a mutant that makes the mistake.
+      - name: Guards still guard (mutation check)
+        run: bash tests/mutants.sh
+

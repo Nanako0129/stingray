@@ -1,0 +1,119 @@
+# CodeRabbit configuration.
+# Schema: https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# Every instruction below restates a rule this repository already writes down in
+# README.md or carries in a comment next to the code it governs. Nothing here is
+# a new policy.
+
+reviews:
+  auto_review:
+    # This repository is reviewed by CodeRabbit.
+    #
+    # The routing by star count sends a public repository under ten stars to
+    # GitHub Copilot, and this one has zero. That routing is suspended:
+    # Copilot's review quota is exhausted, and the quota is per requesting
+    # user, so it takes out every repository on that side of the split at once.
+    # CodeRabbit is the reviewer here until that changes.
+    #
+    # KNOWN EXPIRY, 2026-10-02.
+    #
+    # CodeRabbit's OSS tier: "For public repositories with less than 10 stars,
+    # CodeRabbit requires reviews to be triggered manually." Automatic review
+    # here therefore works only while the Advanced trial lasts, and stops on
+    # 2026-10-02 whatever this file says. After that date an '@coderabbitai
+    # review' comment still works, and a poller that only waits will wait
+    # forever -- the review it is waiting for is never requested.
+    #
+    # So the switch is written down rather than left to be rediscovered:
+    #
+    #   1. After 2026-10-02, open a pull request and check whether CodeRabbit
+    #      reviews it unprompted.
+    #   2. If it does not, post '@coderabbitai review' on every pull request
+    #      before polling, and set enabled: false here so the arrangement is
+    #      stated rather than merely happening.
+    #   3. If this repository reaches ten stars, automatic review returns on
+    #      its own. Confirm with:
+    #        gh api repos/OWNER/NAME -q .stargazers_count
+    enabled: true
+
+    # Not the default of 5. At 5, automatic review stops silently once a pull
+    # request has five reviewed commits, and a poller waiting on the verdict
+    # reads that pause as a timeout rather than as a stop; sepia#250 ran four
+    # rounds that way.
+    #
+    # 10 rather than 0, though. The pause is also the only built-in brake on
+    # the hourly review allowance, and 0 removes it. That matters more here
+    # than anywhere else: the OSS tier grants 1-10 reviews an hour scoped per
+    # repository and scaled by star count, so a repository at zero stars sits
+    # on the floor. 10 clears the longest fix loop observed here (four rounds)
+    # while staying bounded by what an hour affords.
+    auto_pause_after_reviewed_commits: 10
+
+  path_instructions:
+    - path: "hooks/stingray.sh"
+      instructions: |
+        The invariant (README, "Friction only ever goes up"): every failure
+        path must exit 0, leaving behaviour identical to the plugin not being
+        installed. The only exit that blocks is nudge(). Flag any new early
+        return, guard or error branch that can reach exit 2, and any change
+        that makes a failure suppress work the model would otherwise do.
+
+        Comments here are load-bearing and several state measured behaviour.
+        Flag a comment that asserts runtime behaviour without a measurement
+        beside it. This repository has already shipped one such comment: it
+        claimed redaction "drops whole lines containing URLs", and URLs are in
+        fact replaced in place so the line survives. The test written to guard
+        that behaviour passed against a deliberately broken implementation.
+
+        Shape 3's declaration regex must run on the raw last_assistant_message,
+        before redaction and before truncation. Running it on redacted text
+        makes it miss its most common real positives, and a positive test built
+        from a URL will not catch that.
+
+        Redaction must happen before truncation. The reverse order cuts a code
+        fence in half, the pair stops matching, and the block leaks.
+
+    - path: "tests/**"
+      instructions: |
+        Prefer an assertion on observed behaviour over a scan of source text. A
+        property that can be moved to another line or another function will be
+        moved around a text scan, and the scan will keep passing.
+
+        Cases 7 and 9 exist to catch one specific implementation mistake each,
+        and each has been checked against a mutant that makes that mistake. A
+        change to either case must say which mutant still fails it. A test that
+        cannot fail is worse than no test: it reports a guarantee nobody holds.
+
+        A check that only prints cannot veto anything. Flag a new measurement
+        that reports a threshold without exiting non-zero when it is missed --
+        the latency case was written that way once and reported "passed" over
+        budget.
+
+        The live cases must use synthetic text. Running the test suite must not
+        itself disclose transcript content to a third party.
+
+    - path: "README.md"
+      instructions: |
+        Claims about what leaves the machine must match hooks/stingray.sh, and
+        must be measured against the bytes actually sent rather than against a
+        copy of the redactor. That drift has happened here: the README claimed
+        project names were masked while the shipped redactor had no such rule,
+        because the figure came from a separate offline copy.
+
+        The accuracy figures carry a stated ceiling on purpose. Flag any edit
+        that promotes them into a guarantee, drops the caveat that the labels
+        undercount, or presents the redaction ceiling as if it were solved.
+
+    - path: "questions.json"
+      instructions: |
+        This is the classifier's contract, not prose. The criteria text is the
+        artifact the 81.8% precision figure was measured on, and the payload
+        logs a qset_hash so a change is detectable. Any edit to the wording
+        invalidates the calibration and the thresholds derived from it. Flag an
+        edit that does not say so and does not state how it will be
+        re-measured.
+
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - "README.md"

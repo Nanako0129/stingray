@@ -1,0 +1,14 @@
+{
+  "name": "stingray",
+  "owner": {
+    "name": "Nanako Tsai"
+  },
+  "description": "A Claude Code Stop hook for the turn that ends half-done: nothing done, an announced action never carried out, or a promise to watch CI with nothing polling.",
+  "plugins": [
+    {
+      "name": "stingray",
+      "source": "./",
+      "description": "Installs the Stop hook. Off until you set a switch: STINGRAY_SHAPE3=1 for the local check alone, STINGRAY_SHADOW=1 to record without blocking, STINGRAY=1 to block."
+    }
+  ]
+}
