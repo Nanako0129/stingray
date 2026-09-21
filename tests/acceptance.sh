@@ -144,10 +144,21 @@ check "16 background_tasks null → pass" \
 #     takes a suffix (等著 / 等待) and the outcome word is not always one of the
 #     first four that were tried, so each of these was a real positive that
 #     shape 3 recorded nothing for.
+# One phrase per alternative that was added, so removing any single one of them
+# fails a case rather than passing on the strength of its neighbours.
+#
+# Each phrase must make its own alternative load-bearing. The first attempt at
+# the 出來 case was 「等審查結果出來我告訴你」, which contains 結果 — already an
+# outcome word — so the pattern matched on that and deleting 出來 changed
+# nothing. An ablation found it: remove one alternative, and exactly one case
+# must fail.
 for phrase in \
   "沒問題，我會等著 CodeRabbit 的審查結果。" \
-  "我會等 CI 跑完再回報。" \
   "我會等待 CodeRabbit 的結果。" \
+  "我會等到 review 完成再往下做。" \
+  "我會等 CI 跑完再回報。" \
+  "等 CodeRabbit 的回覆進來我就處理。" \
+  "等 CI 的數字出來我再判斷。" \
   "等審查結果回來我告訴你。"
 do
   check "17 watch phrasing: ${phrase:0:14}…" "$(mk "$phrase" '[]' "sess-17-$RANDOM")" \
