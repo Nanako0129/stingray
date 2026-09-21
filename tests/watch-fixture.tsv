@@ -17,6 +17,10 @@
 #   inline-fp  two nominalisations on one line whose tail and head reach across
 #              the sentence boundary, manufacturing a forward claim neither makes
 #              alone. Observed in a review message about this very rule.
+#   clause-tp  a real promise sharing a line with a clause that merely discusses
+#              a poller. These fail against any rule that evaluates its exclusion
+#              separately from the hit, because the discussing clause withdraws
+#              the promising one.
 #   rev-fp     target-then-verb text that describes a poller rather than promising
 #              to watch one. The reverse branch reads these as claims unless a
 #              possessive or demonstrative marks the verb as a noun; they are
@@ -73,3 +77,6 @@ watch	nom-cost	那支 PR 的輪詢已經掛上了
 watch	nom-cost	Codex 對 PR #168 的監看仍在跑
 quiet	inline-fp	反向分支獨力造成的誤判：CI 的輪詢器壞了、這個 PR 的輪詢邏輯有 bug
 quiet	inline-fp	兩句都 quiet：review 用的輪詢腳本我修好了、build 階段的監控指標掉了
+watch	clause-tp	那支輪詢器剛修好，我會盯著 CI 的結果
+watch	clause-tp	這個 PR 的輪詢邏輯有 bug，我現在盯著 CI
+watch	clause-tp	剛開好的監看會盯著 CI 的結果

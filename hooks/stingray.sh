@@ -105,8 +105,8 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 #
 # Reverse order — target first, then verb — catches the progressive form the
 # forward shape cannot see: "Codex 輪詢中", "監看已在背景掛上". Like everything
-# else here its evidence is one session, so it is kept because the exclusion
-# below costs nothing, not because the corpus settles it.
+# else here its evidence is one session, so it is kept because the possessive
+# rule makes it cheap, not because the corpus settles it.
 #
 # The reverse order also reads "CI 的輪詢器壞了" as a promise, because there the
 # verb is a noun. A possessive or demonstrative immediately before the verb marks
@@ -115,30 +115,41 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # to cost 2; that was an artefact of the same unit error.)
 #
 # A nominalised watch that is genuinely in progress — "CI 的監看還掛著" — is
-# withdrawn by the exclusion and then recovered by WATCH_ASPECT, which is what
-# the aspect marker is for. Those sentences are in tests/watch-fixture.tsv as
-# `nom-cost`, expected watch, and they fail if either half is removed.
+# refused by the possessive rule and reached by WATCH_ASPECT instead, which is
+# what the aspect marker is for. Those sentences are in tests/watch-fixture.tsv
+# as `nom-cost`, expected watch, and they fail if either half is removed.
 #
-# The same possessive exclusion applies to the forward branch, and for a reason
-# that only shows up in this repository's own writing. "CI 的輪詢器壞了" and
-# "這個 PR 的輪詢邏輯有 bug" are each withdrawn on their own. Put them on one
-# line, as anyone listing examples does, and 輪詢 at the end of the first reaches
-# PR at the start of the second: two nominalisations side by side manufacture a
-# forward claim that neither makes alone. Found by the session reviewing this
-# branch, in a message it had written about this branch. Excluding it costs 0 of
-# the 102 corpus hits and changes no fixture line.
+# A possessive or a demonstrative immediately before the verb marks it as a noun
+# — "CI 的輪詢器壞了" is about a poller, not a promise to watch one. That refusal
+# is written into WATCH_FWD and WATCH_REV as a character class rather than as a
+# second pattern applied afterwards, and the difference is not stylistic. Three
+# defects on this branch were the same mistake: an exclusion evaluated separately
+# withdrew a hit it was not describing.
 #
-# What stays is not fixable here: quoting a promise reads as making one.
+#   whole-text greps   "Codex 輪詢中" cancelled by "CI 的輪詢器壞了" on another
+#                      line, in either order
+#   compared by line   "那支輪詢器剛修好，我會盯著 CI 的結果" cancelled inside
+#                      one line, the promise killed by the clause before it
+#   inside the match   cannot happen: there is nothing to withdraw
+#
+# All three were found by the session reviewing this branch, the last two in
+# sentences it had written about this branch. The invariant they converge on is
+# that an exclusion may only refuse the hit it describes, and the only way to
+# hold it with grep is to make the refusal part of the hit.
+#
+# It also settles the case that started this: "CI 的輪詢器壞了" and "這個 PR 的
+# 輪詢邏輯有 bug" on one line, where 輪詢 at the end of the first reaches PR at
+# the start of the second. Both verbs carry a possessive, so neither is a hit,
+# and there is no combination left to make. Measured: 99 corpus messages against
+# 102 under the withdrawal version, and the three it drops are one sentence
+# repeated — "那是同一輪 CI 的第二個監看，結果與剛才回報的相同" — a completed
+# watch reported in the past tense.
+#
+# What no arrangement of this reaches: quoting a promise reads as making one.
 # "他說丟掉的那類：第 5 輪輪詢中、監看還架著" matches, correctly by the rule and
-# wrongly by intent, and telling the two apart is semantics. Whoever maintains
-# this regex will be blocked by it while discussing it — that is the expected
-# behaviour, not a fault, and it is written here because the other session spent
-# rounds establishing it. redact_text does not run before shape 3 (see below), so
-# examples inside code fences take part in the match too.
-#
-# ERE has no lookbehind, so neither exclusion can live inside its branch. Both
-# are separate matches compared by line number, so an exclusion can only withdraw
-# a hit on the same line it appears.
+# wrongly by intent, and telling those apart is semantics. Whoever maintains this
+# regex gets blocked by it while discussing it. redact_text does not run before
+# shape 3, so examples inside code fences take part in the match as well.
 #
 # "Round 2 輪詢中", "輪詢在背景" and "輪詢中" were the cost of the target
 # requirement and are recovered by the aspect branch; they stay in the fixture
@@ -154,48 +165,20 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # of these shapes behave in general.
 WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
 WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
-WATCH_FWD="(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
-WATCH_REV="(${WATCH_TARGET})[^。]{0,20}(${WATCH_VERB})"
-WATCH_REV_NOUN="(${WATCH_TARGET})[^。]{0,20}(的|那支|那段|那個|這支|這段) ?(${WATCH_VERB})"
-WATCH_FWD_NOUN="(的|那支|那段|那個|這支|這段) ?(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})"
+# Not a possessive or a demonstrative. Spelled as a character class so the
+# refusal is part of the match, never a second pattern applied afterwards.
+WATCH_NOPOSS='[^。的支段個]'
+WATCH_FWD="(^|${WATCH_NOPOSS})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
+WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_NOPOSS}(${WATCH_VERB})"
 WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
 
 # The one place that decides. tests/watch-fixture.sh drives this through
 # --watch-test rather than rebuilding the condition, because a second copy of a
 # decision is how a change gets tested against its own mirror image.
 watch_claims() {  # watch_claims <text>; 0 = claims to watch something
-  # The exclusion has to be decided on the SAME line as the hit it withdraws.
-  # An earlier version ran three whole-text greps and combined the answers, so
-  # WATCH_REV could match one line while WATCH_REV_NOUN matched another and
-  # cancelled it: "Codex 輪詢中" followed by "順帶一提 CI 的輪詢器壞了" came out
-  # quiet, in either order. One real claim silenced by an unrelated sentence
-  # about a poller — and the messages the reverse branch exists for are auto-loop
-  # reports, which carry exactly that mixture. Found by another session.
-  #
-  # grep is line-oriented and ERE cannot cross a newline, so a verb on one line
-  # and its target on the next never combined into a hit; only the cancellation
-  # crossed lines. The forward branch was never exposed: it returns on the first
-  # match and nothing can withdraw it.
   printf '%s' "$1" | grep -qE "$WATCH_ASPECT" && return 0
-  fwd=$(printf '%s' "$1" | grep -nE "$WATCH_FWD" | cut -d: -f1)
-  fnoun=$(printf '%s' "$1" | grep -nE "$WATCH_FWD_NOUN" | cut -d: -f1)
-  while IFS= read -r n; do
-    [ -n "$n" ] || continue
-    printf '%s\n' "$fnoun" | grep -qx "$n" || return 0
-  done <<EOF
-$fwd
-EOF
-  rev=$(printf '%s' "$1" | grep -nE "$WATCH_REV" | cut -d: -f1)
-  [ -n "$rev" ] || return 1
-  noun=$(printf '%s' "$1" | grep -nE "$WATCH_REV_NOUN" | cut -d: -f1)
-  # Three greps whatever the message length; the loop below runs once per
-  # reverse-matching line, which is nearly always none or one.
-  while IFS= read -r n; do
-    [ -n "$n" ] || continue
-    printf '%s\n' "$noun" | grep -qx "$n" || return 0
-  done <<EOF
-$rev
-EOF
+  printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
+  printf '%s' "$1" | grep -qE "$WATCH_REV" && return 0
   return 1
 }
 
