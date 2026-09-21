@@ -209,7 +209,7 @@ Across 48 captured payloads from real turns, all eight tracked leak categories r
 
 The **substance of the work survives transmission**. Reading those payloads reveals that a quota window was measured at 80% while 47 samples in the same window reported 77%, that a 60-second blind poll was running, and that six recovery files dated 2026-08-22 were present in a directory. Identifiers were masked; the operational task, the error encountered, and the planned resolution remained legible.
 
-TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability at the **greater of** what you paid it in the previous twelve months and USD 50 — so USD 50 is the floor, and it is the whole cap only while you have paid nothing. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. Two states make no outbound request at all: the default unset state, and `STINGRAY_SHAPE3=1` on its own, which exits before the request path.
+TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability low enough that a leak leaves no practical financial remedy. Read the current terms rather than this summary of them — the terms change and the summary will not. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. Two states make no outbound request at all: the default unset state, and `STINGRAY_SHAPE3=1` on its own, which exits before the request path.
 
 ## Calibration
 
