@@ -270,23 +270,21 @@ stingray/
 │   └── turn-tools.jq            # slice one turn out of the transcript
 ├── questions.json               # the two Jev criteria — the classifier's contract, pinned to jev-1.13.0
 └── tests/
-    ├── acceptance.sh            # 20 offline cases, no key, no network
+    ├── acceptance.sh            # drives the real hook offline: no key, no network
     ├── network.sh               # fail-open paths; --live also hits the real endpoint
-    ├── mutants.sh               # re-derives that cases 7, 9, 15 and 16 can still fail
-    ├── readme-counts.sh         # cross-checks this page's numbers against the suites
+    ├── mutants.sh               # re-derives that each guard still fails when broken
     ├── show-payload.sh          # capture what would really be sent, locally
-    ├── stub_server.py           # local stand-in: hang, 401, record, or badscore
+    ├── stub_server.py           # local stand-in for the endpoint; --list-modes lists its modes
     └── latency.py               # p50/p95 against a budget, exits non-zero over it
 ```
 
 ## Tests
 
 ```bash
-./tests/acceptance.sh        # 20 cases, no key, no network
+./tests/acceptance.sh        # drives the real hook offline: no key, no network
 ./tests/network.sh           # fail-open paths against a local stub server
 ./tests/network.sh --live    # also the real endpoint, with synthetic text only
-./tests/mutants.sh           # do the guards still guard? (4 mutants)
-./tests/readme-counts.sh     # do the numbers on this page still match the suites?
+./tests/mutants.sh           # do the guards still guard?
 ./tests/show-payload.sh 50   # capture what would really be sent, locally
 ```
 

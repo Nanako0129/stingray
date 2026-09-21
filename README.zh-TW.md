@@ -270,23 +270,21 @@ stingray/
 │   └── turn-tools.jq            # 從 transcript 切出這一輪
 ├── questions.json               # 兩道 Jev criteria — 分類器的契約，釘死 jev-1.13.0
 └── tests/
-    ├── acceptance.sh            # 20 個離線案例，不需 key、不連網
+    ├── acceptance.sh            # 離線驅動真正的 hook：不需 key、不連網
     ├── network.sh               # fail-open 路徑；--live 另外打真實端點
-    ├── mutants.sh               # 重新推導案例 7、9、15、16 是否仍會失敗
-    ├── readme-counts.sh         # 用套件回報的數字反查這頁上的數字
+    ├── mutants.sh               # 重新推導每個守衛被弄壞時是否仍會失敗
     ├── show-payload.sh          # 在本機捕捉真正會送出去的東西
-    ├── stub_server.py           # 本機替身：hang、401、record、badscore
+    ├── stub_server.py           # 端點的本機替身；--list-modes 會列出它的模式
     └── latency.py               # 對照預算算 p50／p95，超標就 exit 非零
 ```
 
 ## 測試
 
 ```bash
-./tests/acceptance.sh        # 20 個案例，不需 key、不連網
+./tests/acceptance.sh        # 離線驅動真正的 hook：不需 key、不連網
 ./tests/network.sh           # 對本機 stub 跑 fail-open 路徑
 ./tests/network.sh --live    # 另外打真實端點，只送合成文字
-./tests/mutants.sh           # 那些守衛還守得住嗎？（4 個 mutant）
-./tests/readme-counts.sh     # 這頁上的數字還對得上套件嗎？
+./tests/mutants.sh           # 那些守衛還守得住嗎？
 ./tests/show-payload.sh 50   # 在本機捕捉真正會送出去的東西
 ```
 

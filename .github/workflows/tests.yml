@@ -61,7 +61,3 @@ jobs:
       - name: Guards still guard (mutation check)
         run: bash tests/mutants.sh
 
-      # Every count in the README is a claim with a short shelf life. Four went
-      # stale inside two rounds, in the one file review had skipped.
-      - name: README counts match the suites
-        run: bash tests/readme-counts.sh
