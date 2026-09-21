@@ -152,6 +152,9 @@ check "16 background_tasks null → pass" \
 # outcome word — so the pattern matched on that and deleting 出來 changed
 # nothing. An ablation found it: remove one alternative, and exactly one case
 # must fail.
+# Set here, not defaulted inside the loop: ${phrase_n:-0} would inherit an
+# exported phrase_n and shift every label and session id.
+phrase_n=0
 for phrase in \
   "沒問題，我會等著 CodeRabbit 的審查結果。" \
   "我會等待 CodeRabbit 的結果。" \
@@ -166,7 +169,7 @@ do
   # rather than sliced, because ${var:0:14} counts characters under a UTF-8
   # locale and bytes otherwise, so the label would be cut mid-character on a
   # runner that does not set one.
-  phrase_n=$((${phrase_n:-0} + 1))
+  phrase_n=$((phrase_n + 1))
   check "17.$phrase_n watch phrasing" "$(mk "$phrase" '[]' "sess-17-$phrase_n")" \
     2 "nothing is running" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 done
