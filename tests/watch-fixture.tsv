@@ -21,7 +21,13 @@
 #              possessive or demonstrative marks the verb as a noun; they are
 #              here so that exclusion cannot be removed without a failure.
 #
-# NOTE on `short`: these are genuine promises that the "bare keyword + target
+# NOTE on `short`: THREE LINES HERE ARE NOT THE SIZE OF THIS COST. On the corpus
+# in hooks/stingray.sh the target requirement drops 131 of the 183 messages the
+# previous rule matched, and most of those are genuine short-form reports with no
+# target in them. The three below are representatives, not a total. See the
+# paragraph beginning "That is a large trade" in the hook.
+#
+# These are genuine promises that the "bare keyword + target
 # keyword within N characters" shape cannot recover at ANY window size, because
 # the sentence contains no target keyword at all. Widening 12 -> 20 changes
 # nothing for them (measured). They are listed as `watch` so the cost of that

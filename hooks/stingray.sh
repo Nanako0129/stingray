@@ -46,41 +46,58 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
 # ── What counts as a claim to watch something ────────────────────────────────
 #
-# Every count below is over whole assistant messages, because that is what the
-# hook matches: 2,527 messages from 60 transcripts across 54 sessions. An
-# earlier version of this comment cited 31,088, which was the line count of the
-# same corpus after splitting on newlines, and reported per-line ratios. That
-# was the wrong unit in a way that mattered — a message whose one line says
-# 輪詢 and whose next says CI matches as a message and does not match line by
-# line — so the numbers here replace it rather than restate it.
+# Every count below is over whole assistant messages evaluated the way this
+# function evaluates them, line by line: 2,527 messages from 60 transcripts
+# across 54 sessions. Two earlier versions of this comment were wrong about the
+# unit. The first counted 31,088, which was the corpus split on newlines. The
+# second counted messages but measured them with the newlines replaced by
+# spaces, which lets a verb on one line reach a target on the next — something
+# grep cannot do, since it is line-oriented and ERE cannot cross a newline.
+# Both overstated the shape. These figures come from the real semantics,
+# cross-checked against --watch-test on 41 cases with no disagreement.
 #
 # A claim needs a verb AND a thing being watched. The verbs alone matched topic,
-# not commitment: the shipped regex before this change matched 183 messages, 141
-# of them through a bare verb with no narrowing, and only 17 of those 141 carried
-# any first-person marker. The hits included a CV line ("我做過跨 13 個節點的監控
+# not commitment: the shipped regex before this change matched 183 messages, 142
+# of them on a line whose verb had no narrowing at all, and only 3 of those 142
+# carried any first-person marker. The hits included a CV line ("我做過跨 13 個節點的監控
 # 平台"), a quoted customer requirement, and a release announcement whose subject
 # was a poller that used to hang — that last one blocked a real turn with nothing
-# running. Requiring a target takes 183 to 55.
+# running. Requiring a target takes 183 messages to 52.
 #
-# The window is 20 rather than 12: forward-branch hits go 8 to 13, and the five
-# it adds are genuine. Real messages put a commit sha or a URL between the verb
+# That is a large trade, and the corpus does not let it look small. 131 messages
+# the old rule matched no longer match, and reading a sample of them, most are
+# genuine: "第 5 輪輪詢中（`bx22jpak0`）。", "推送、重建、輪詢第十二輪。",
+# "監看還架著。". They name no target, so the shape cannot see them — widening
+# the window to 90 recovers 5 of the 131 and starts admitting fixture lines that
+# must stay quiet. The precision this buys is not theoretical: two live blocks in
+# another session came from text merely discussing a poller. But anyone reading
+# "3 short-form promises dropped" in the fixture output should read it against
+# this paragraph, not instead of it.
+#
+# Neither side of that trade generalises. 176 of the old 183 hits and 51 of the
+# new 52 come from a single session out of 54 — an auto-loop that reports polling
+# status every turn. What this corpus establishes is how the rules behave on that
+# habit, not on everyone.
+#
+# The window is 20. Message hits by window: 20 gives 52, 30 gives 53, 40 gives
+# 55, 90 gives 57 — and every width from 30 up also matches a fixture line that
+# must stay quiet. So 20 is where the curve stops paying. It is wide enough for
+# the real reason messages need width, a commit sha or a URL between the verb
 # and its object, as in "輪詢最新 head（7758156）的自動審查結果".
 #
 # `poll` is bracketed by non-identifier characters so a filename does not read
 # as a promise: poll-coderabbit.sh matched the bare form on its own name.
 #
-# Reverse order — target first, then verb — supplies 27 of the 55, the
-# progressive form the forward shape cannot see: "Codex 輪詢中", "監看已在背景
-# 掛上". Its value is NOT established beyond one writing habit: 26 of those 27
-# messages come from a single session out of the 54. It is kept because the
-# exclusion below costs nothing, not because the corpus settles it.
+# Reverse order — target first, then verb — catches the progressive form the
+# forward shape cannot see: "Codex 輪詢中", "監看已在背景掛上". Like everything
+# else here its evidence is one session, so it is kept because the exclusion
+# below costs nothing, not because the corpus settles it.
 #
 # The reverse order also reads "CI 的輪詢器壞了" as a promise, because there the
 # verb is a noun. A possessive or demonstrative immediately before the verb marks
 # that case: on eight constructed sentences of the shape it catches 8 of 8, and
-# it removes 0 of the 55 real hits. (On the line-split corpus it appeared to cost
-# 2; both were lines of a message that claimed a watch elsewhere in the same
-# message, so at the unit the hook actually uses they were never lost.)
+# it removes no real hit from the corpus. (On the line-split corpus it appeared
+# to cost 2; that was an artefact of the same unit error.)
 #
 # What the exclusion cannot separate is a nominalised watch that is genuinely in
 # progress — "CI 的監看還掛著" reads as quiet. That is a real miss, not a bug in
@@ -108,10 +125,31 @@ WATCH_RE="${WATCH_FWD}|${WATCH_REV}"
 # --watch-test rather than rebuilding the condition, because a second copy of a
 # decision is how a change gets tested against its own mirror image.
 watch_claims() {  # watch_claims <text>; 0 = claims to watch something
+  # The exclusion has to be decided on the SAME line as the hit it withdraws.
+  # An earlier version ran three whole-text greps and combined the answers, so
+  # WATCH_REV could match one line while WATCH_REV_NOUN matched another and
+  # cancelled it: "Codex 輪詢中" followed by "順帶一提 CI 的輪詢器壞了" came out
+  # quiet, in either order. One real claim silenced by an unrelated sentence
+  # about a poller — and the messages the reverse branch exists for are auto-loop
+  # reports, which carry exactly that mixture. Found by another session.
+  #
+  # grep is line-oriented and ERE cannot cross a newline, so a verb on one line
+  # and its target on the next never combined into a hit; only the cancellation
+  # crossed lines. The forward branch was never exposed: it returns on the first
+  # match and nothing can withdraw it.
   printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
-  printf '%s' "$1" | grep -qE "$WATCH_REV" || return 1
-  printf '%s' "$1" | grep -qE "$WATCH_REV_NOUN" && return 1
-  return 0
+  rev=$(printf '%s' "$1" | grep -nE "$WATCH_REV" | cut -d: -f1)
+  [ -n "$rev" ] || return 1
+  noun=$(printf '%s' "$1" | grep -nE "$WATCH_REV_NOUN" | cut -d: -f1)
+  # Three greps whatever the message length; the loop below runs once per
+  # reverse-matching line, which is nearly always none or one.
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    printf '%s\n' "$noun" | grep -qx "$n" || return 0
+  done <<EOF
+$rev
+EOF
+  return 1
 }
 
 # Fixture entry point. Answers for one line and exits; reads no stdin, writes no
