@@ -8,6 +8,8 @@ proven without anything leaving the machine.
                                               then answer with zero scores
     stub_server.py badscore <portfile>        answer 200 with a score of 2,
                                               outside the probability range
+    stub_server.py mismatch <portfile>        answer 200 scoring watch_mismatch
+                                              at 1.0 and everything else at 0.0
 
 Record mode is how "what would actually leave this machine" gets measured: by
 capturing the bytes the shipped hook really sends, rather than by re-running a
@@ -25,7 +27,7 @@ import threading
 # --list-modes. The docstring above is prose and can go stale; anything checking
 # these names must read them from here, or it is comparing one comment with
 # another.
-MODES = ("hang", "401", "record", "badscore")
+MODES = ("hang", "401", "record", "badscore", "mismatch")
 
 if sys.argv[1:2] == ["--list-modes"]:
     print("\n".join(MODES))
@@ -103,6 +105,17 @@ def serve(conn):
             except (ValueError, AttributeError):
                 names = []
             conn.sendall(ok_response({"answers": {n: {"noul": 2} for n in names}}))
+            return
+        if mode == "mismatch":
+            # Only watch_mismatch scores high, so a block under this stub can
+            # only have come from that question.
+            body = read_request(conn)
+            try:
+                names = list(json.loads(body).get("questions", {}))
+            except (ValueError, AttributeError):
+                names = []
+            conn.sendall(ok_response({"answers": {
+                n: {"noul": 1.0 if n == "watch_mismatch" else 0.0} for n in names}}))
             return
         if mode == "401":
             # Drain the whole request first. A single recv can return before

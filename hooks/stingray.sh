@@ -60,9 +60,19 @@ MODE="off"
 [ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
 [ "$MODE" = "off" ] && exit 0
 
-# Shape 3 may block in active (with its own flag) or in shape3-only mode.
+# Shape 3 may block in active (with its own flag) or in shape3-only mode. This
+# covers only the certain case: a promise with nothing running or scheduled
+# behind it, which arithmetic settles.
 shape3_blocks=0
 [ "${STINGRAY_SHAPE3:-}" = "1" ] && [ "$MODE" != "shadow" ] && shape3_blocks=1
+
+# The correspondence judgement is a separate switch, off even when shape 3 is
+# blocking. It is a model answer with a borrowed threshold and no measurement
+# behind it, and shape 3's whole claim was that it blocks only when the answer
+# is certain. Folding it in would have removed that quietly. It records from the
+# first turn; it may block once the bar in the README is met.
+watch_judge_blocks=0
+[ "${STINGRAY_SHAPE3_JUDGE:-}" = "1" ] && [ "$shape3_blocks" = "1" ] && watch_judge_blocks=1
 # The Jev judgements may block only in active mode.
 jev_blocks=0
 [ "$MODE" = "active" ] && jev_blocks=1
@@ -146,22 +156,40 @@ EOF
 # messages. Both numbers, because "+0.5%" on its own reads as a share of the
 # 19,450 and would overstate it tenfold.
 WATCH_RE='監看|監控|盯著|盯住|輪詢|持續追蹤|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|poll(ing)?|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)'
+watch_claimed=0
+watch_unresolved=0
 if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
+  watch_claimed=1
   # Require an actual array. Neither a missing key nor a null may be read as
   # "nothing is running": has() is true for null, and [ .[]? ] over null counts
   # zero, so either would degrade shape 3 into "block whenever the regex
   # matches". A positive-case test still passes under that defect — it surfaces
   # only as a wrong block on ordinary turns, which is why mutants.sh covers it.
   if [ "$(printf '%s' "$input" | jq '(.background_tasks | type) == "array"' 2>/dev/null)" = "true" ]; then
-    running=$(printf '%s' "$input" | jq '[.background_tasks[]? | select(.status=="running")] | length' 2>/dev/null)
+    # Count scheduled work too. A cron polling the thing it promised to watch is
+    # a kept promise, and session_crons went unread until a probe showed shape 3
+    # blocking a turn whose cron was doing exactly the polling it asked for.
+    running=$(printf '%s' "$input" | jq '
+      ([.background_tasks[]? | select(.status=="running")] | length)
+      + ((.session_crons // []) | length)' 2>/dev/null)
     case "$running" in ''|*[!0-9]*) running=-1 ;; esac
     if [ "$running" = "0" ]; then
+      # Nothing at all is running or scheduled. No judgement is needed to know
+      # the promise has no mechanism behind it, so this stays arithmetic and
+      # needs neither a key nor the network.
       if [ "$shape3_blocks" = "1" ]; then
         log unwatched 1 true
         nudge "it promises to watch an external result, but nothing is running in the background"
       fi
-      # Shadow, or active but shape 3 has not cleared its own bar: record only.
       log unwatched 1 false
+    elif [ "$running" -gt 0 ]; then
+      # Something is running — but is it watching the thing that was promised?
+      # Counting cannot answer that: a build running while the turn promised to
+      # follow a PR review satisfies "something is running" and misses the
+      # broken promise entirely. Correspondence is a judgement, so it is handed
+      # to the Jev section below, which has the message and the work side by
+      # side. Without a key that section exits and today's behaviour stands.
+      watch_unresolved=1
     fi
   fi
 fi
@@ -204,25 +232,41 @@ fi
 # files, internal component names, work-volume figures and third-party
 # quotations survive. Project names other than the ones derived above survive.
 # See README.
-redacted=$(printf '%s' "$last" | perl -0777 -pe '
-  s/```.*?```/ /gs;                      # fenced code blocks (paired)
-  s/^\s*>.*$/ /mg;                       # block quotes
-  s/`[^`\n]{1,200}`/ /g;                 # inline code
-  s{https?://\S+|www\.\S+}{ }g;          # URLs (replaced in place, line survives)
-' | perl -ne '
-  next if m{(?:/Users/|/private/|/home/|~/|[A-Za-z]:\\)[^\s"'"'"'`,)]+};  # absolute paths
-  next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b};                      # relative paths
-  next if m{\b[\w-]+\.(?:rs|swift|py|ts|tsx|js|jsx|sh|json|toml|ya?ml|lock|md|c|h|cpp|go|rb|java|kt)\b};
-  print;
-' | perl -0777 -pe '
-  s/\b[0-9a-f]{7,40}\b/ /g;              # commit SHAs
-  s/(?:#\d+|\bPR\s*\d+|\bissue\s*\d+)/ /gi;
-' | perl -0777 -pse '
-  for my $w (grep { length > 2 } split /\s*,\s*/, ($n // "")) {
-    my $q = quotemeta $w; s/\b$q\b/<project>/gi;
-  }
-  s/[ \t]{2,}/ /g; s/\n{3,}/\n\n/g;
-' -- -n="$names")
+# One redaction pipeline, used for every field that leaves. Written once on
+# purpose: a second copy of a redactor already drifted from this one here and
+# dropped a rule the README still promised.
+redact_text() {
+  # Credential shapes first: an Authorization header or a token-looking field
+  # must not survive into the request, and the outgoing scan covers only sk-,
+  # GitHub, AWS and PEM. A cron prompt is free text written by the model and can
+  # carry a curl command with a header in it.
+  perl -0777 -pe '
+    s/\bAuthorization\s*:\s*\S+(\s+\S+)?/Authorization: <redacted>/gi;
+    s/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/$1 <redacted>/g;
+    s/\bgithub_pat_[A-Za-z0-9_]{20,}/<redacted credential>/g;
+    s/("?)(?:api[_-]?key|auth[_-]?token|access[_-]?token|secret|password|passwd|pwd)\1\s*[:=]\s*"?[^"\s,;}]{6,}"?/<redacted credential>/gi;
+  ' | perl -0777 -pe '
+    s/```.*?```/ /gs;                      # fenced code blocks (paired)
+    s/^\s*>.*$/ /mg;                       # block quotes
+    s/`[^`\n]{1,200}`/ /g;                 # inline code
+    s{https?://\S+|www\.\S+}{ }g;          # URLs (replaced in place, line survives)
+  ' | perl -ne '
+    next if m{(?:/Users/|/private/|/home/|~/|[A-Za-z]:\\)[^\s"'"'"'`,)]+};  # absolute paths
+    next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b};                      # relative paths
+    next if m{\b[\w-]+\.(?:rs|swift|py|ts|tsx|js|jsx|sh|json|toml|ya?ml|lock|md|c|h|cpp|go|rb|java|kt)\b};
+    print;
+  ' | perl -0777 -pe '
+    s/\b[0-9a-f]{7,40}\b/ /g;              # commit SHAs
+    s/(?:#\d+|\bPR\s*\d+|\bissue\s*\d+)/ /gi;
+  ' | perl -0777 -pse '
+    for my $w (grep { length > 2 } split /\s*,\s*/, ($n // "")) {
+      my $q = quotemeta $w; s/\b$q\b/<project>/gi;
+    }
+    s/[ \t]{2,}/ /g; s/\n{3,}/\n\n/g;
+  ' -- -n="$names"
+}
+
+redacted=$(printf '%s' "$last" | redact_text)
 redacted=$(printf '%s' "$redacted" | tail -c 2400)   # ~800 CJK characters
 
 [ -n "$(printf '%s' "$redacted" | tr -d '[:space:]')" ] || exit 0
@@ -240,22 +284,41 @@ fi
 
 # Only the statuses leave the machine — never a background task's description or
 # command line.
-bg_status=$(printf '%s' "$input" | jq -c '[.background_tasks[]?.status] // []' 2>/dev/null)
-[ -n "$bg_status" ] || bg_status='[]'
+# What the background work IS, not just how much of it there is. Judging whether
+# a promise to watch something is kept needs the two side by side: a build
+# running while the turn promised to follow a PR review satisfies "something is
+# running" and misses the broken promise entirely.
+#
+# This is more than the statuses that used to be sent. Descriptions and cron
+# prompts are written by the model and carry project names and work detail, so
+# they go through the same redaction as the message. Command lines are still
+# never sent.
+bg_text=$(printf '%s' "$input" | jq -r '
+  [ (.background_tasks[]? | "\(.status): \(.description // "(no description)")"),
+    ((.session_crons // [])[]? | "scheduled: \(.prompt // "(no prompt)")") ]
+  | if length == 0 then "nothing running or scheduled" else join(" | ") end' 2>/dev/null)
+[ -n "$bg_text" ] || bg_text="background list unavailable"
+bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
+[ -n "${bg_text// /}" ] || bg_text="background list unavailable"
 
+# watch_mismatch is asked only when the turn claimed to watch something AND
+# something is running: that is the one case counting cannot settle. Asking it
+# otherwise would spend a question on a state the arithmetic already decided.
 body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
-  --argjson bg "$bg_status" --slurpfile q "$QUESTIONS" '
+  --arg bg "$bg_text" --argjson wm "$watch_unresolved" --slurpfile q "$QUESTIONS" '
   {model: $m,
    state: {source: "the end of one turn in a Claude Code transcript"},
-   questions: ($q[0] | with_entries(
-     .value.instructions += {final_text: $ft, tools: $tl, background: ($bg|tostring)}))}
+   questions: ($q[0]
+     | (if $wm == 1 then . else del(.watch_mismatch) end)
+     | with_entries(
+        .value.instructions += {final_text: $ft, tools: $tl, background: $bg}))}
 ') || exit 0
 
 # Scan the exact bytes about to be transmitted, not one field of them. The body
 # also carries tool names taken from the transcript, background statuses and the
 # question text; scanning only the redacted message left those uncovered while
 # the README claimed the outgoing bytes were scanned.
-if printf '%s' "$body" | grep -qE 'sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
+if printf '%s' "$body" | grep -qE 'sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
   echo "(stingray: payload held — secret pattern in outgoing request)" >&2
   exit 0
 fi
@@ -299,6 +362,23 @@ read -r na bp <<<"$(jq -r '
 ' "$out" 2>/dev/null)"
 [ -n "${na:-}" ] && [ -n "${bp:-}" ] || {
   echo "(stingray: unavailable — malformed response)" >&2; exit 0; }
+
+# watch_mismatch only when it was asked. An absent or out-of-range answer leaves
+# shape 3 exactly where the arithmetic left it: unresolved, and therefore not
+# acted on.
+wm=$(jq -r '.answers.watch_mismatch.noul
+  | select(type == "number" and . >= 0 and . <= 1)' "$out" 2>/dev/null)
+if [ "$watch_unresolved" = "1" ] && [ -n "${wm:-}" ]; then
+  if awk -v v="$wm" -v t="$TAU" 'BEGIN{exit !(v >= t)}'; then
+    if [ "$watch_judge_blocks" = "1" ]; then
+      log unwatched "$wm" true
+      nudge "it promises to watch an external result, and nothing that is running corresponds to it"
+    fi
+    log unwatched "$wm" false
+  else
+    log watch_ok "$wm" false
+  fi
+fi
 
 fired=$(awk -v a="$na" -v b="$bp" -v t="$TAU" 'BEGIN{
   if (a >= t && a >= b) print "no_action";

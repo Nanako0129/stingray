@@ -43,7 +43,10 @@ say() { if [ "$1" = ok ]; then pass=$((pass+1)); printf '  ok    %s\n' "$2";
 # record captures request bodies. Sets $PORT.
 start_stub() {
   rm -f "$TMP/port"          # a stale port file would silently reuse a dead stub
-  python3 "$HERE/stub_server.py" "$1" "$TMP/port" &
+  # An outfile is always passed: record mode needs one, and without it serve()
+  # raised, sent nothing, and the hook fell back to exit 0 — which one case was
+  # asserting, so it passed for a reason unrelated to what it claimed.
+  python3 "$HERE/stub_server.py" "$1" "$TMP/port" "$TMP/captured-$1" &
   STUB_PID=$!
   for _ in $(seq 1 50); do [ -s "$TMP/port" ] && break; sleep 0.1; done
   PORT=$(cat "$TMP/port")
@@ -143,6 +146,66 @@ kill "$STUB_PID" 2>/dev/null; STUB_PID=
 { [ "$rc" = 0 ] && grep -q "malformed response" "$TMP/b3.err"; } \
   && say ok "B3 score outside [0,1] → exit 0, reported malformed" \
   || say no "B3 score outside [0,1] → exit $rc; stderr: $(head -c 140 "$TMP/b3.err")"
+
+# ── B4. Correspondence. Something IS running, but not the thing that was
+#        promised. Counting cannot tell those apart — this is the case that used
+#        to pass silently because a build satisfied "something is running".
+mk_watch() {  # mk_watch <background_tasks json>
+  jq -cn --argjson bg "$1" '{
+    session_id: "net-watch-'"$RANDOM"'", prompt_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    transcript_path: "/nonexistent/t.jsonl", cwd: "/tmp", permission_mode: "default",
+    hook_event_name: "Stop", stop_hook_active: false,
+    last_assistant_message: "我會盯著 CodeRabbit 的結果，有動靜回報。",
+    background_tasks: $bg, session_crons: []
+  }'
+}
+start_stub mismatch
+( export STINGRAY_STATE_DIR="$TMP/s4b" STINGRAY_SHAPE3=1 STINGRAY_SHAPE3_JUDGE=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
+         STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+  mk_watch '[{"id":"b1","type":"shell","status":"running","description":"build","command":"make"}]' \
+    | bash "$HOOK" >/dev/null 2>"$TMP/b4.err" )
+rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+{ [ "$rc" = 2 ] && grep -q "corresponds to it" "$TMP/b4.err"; } \
+  && say ok "B4 running work that does not correspond → blocked on the judgement" \
+  || say no "B4 unrelated running work → exit $rc; stderr: $(head -c 140 "$TMP/b4.err")"
+
+# ── B5. The same shape with the judgement going the other way must not block.
+#        Only watch_mismatch scores high under this stub, so a pass here proves
+#        nothing else is quietly doing the blocking.
+start_stub record
+( export STINGRAY_STATE_DIR="$TMP/s5b" STINGRAY_SHAPE3=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
+         STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+  mk_watch '[{"id":"b1","type":"shell","status":"running","description":"poll CodeRabbit","command":"gh pr checks"}]' \
+    | bash "$HOOK" >/dev/null 2>"$TMP/b5.err" )
+rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+# Not blocking is also what a crashed stub produces, so require evidence that a
+# scored response actually came back: a decision record carrying a measured secs.
+# Require the watch_ok record specifically. A timed record for no_action or
+# broken_promise would also appear if watch_mismatch were never asked, so
+# accepting any record lets this pass on a hook that dropped the question.
+b5_ok=$(jq -r 'select(.shape == "watch_ok" and (.secs // "") != "") | .shape' \
+  "$TMP/s5b/decisions.jsonl" 2>/dev/null | head -1)
+{ [ "$rc" = 0 ] && [ "$b5_ok" = "watch_ok" ]; } \
+  && say ok "B5 corresponding work → not blocked, and watch_mismatch was answered" \
+  || say no "B5 corresponding work → exit $rc, watch_ok record=${b5_ok:-none}; stderr: $(head -c 140 "$TMP/b5.err")"
+
+# ── B6. The correspondence judgement must not block without its own switch.
+#        Shape 3's claim is that it blocks only when the answer is certain, and
+#        a model answer with a borrowed threshold is not certain. Same stub as
+#        B4, same inputs, only STINGRAY_SHAPE3_JUDGE removed.
+start_stub mismatch
+( export STINGRAY_STATE_DIR="$TMP/s6b" STINGRAY_SHAPE3=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
+         STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+  mk_watch '[{"id":"b1","type":"shell","status":"running","description":"build","command":"make"}]' \
+    | bash "$HOOK" >/dev/null 2>"$TMP/b6.err" )
+rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+b6_rec=$(jq -r 'select(.shape == "unwatched") | .would_block' "$TMP/s6b/decisions.jsonl" 2>/dev/null | head -1)
+{ [ "$rc" = 0 ] && [ "$b6_rec" = "false" ]; } \
+  && say ok "B6 judgement without its own switch → recorded, not blocked" \
+  || say no "B6 judgement without its switch → exit $rc, would_block=${b6_rec:-none}"
 
 if [ "${1:-}" != "--live" ]; then
   echo; printf 'passed %d, failed %d  (live cases skipped; pass --live)\n' "$pass" "$fail"
