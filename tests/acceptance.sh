@@ -65,7 +65,7 @@ WATCH_PLAIN='已經送審了，我會盯著 CodeRabbit 的結果，有動靜回�
 # line whole, so this case fails against an implementation that matches on
 # redacted text. A URL here would NOT work: URLs are replaced in place, the line
 # survives, and the wrong implementation would pass. Measured, not assumed.
-WATCH_PATH='已經送審了，我會盯著 src/main.rs 的測試結果，有動靜回報。'
+WATCH_PATH='已經送審了，我會盯著 src/main.rs 的 CI 結果，有動靜回報。'
 NEUTRAL='這三個檔案都改好了，測試全過。'
 OFFLINE=(TYPESAFE_API_KEY= HOME="$TMP/nohome" STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable)
 
@@ -100,6 +100,8 @@ check "6  active without SHAPE3 flag → pass" "$(mk "$WATCH_PLAIN" '[]')" 0 "-"
 # 7. The redaction trap. Shape 3's regex must run on the RAW message. Here the
 #    declaration shares its line with a path, which redaction drops whole — so
 #    an implementation that matched on redacted text finds nothing and fails.
+#    The line carries a target keyword (CI) because WATCH_RE now requires one;
+#    the property under test is where the regex runs, not which words it knows.
 check "7  declaration on a path line → still fires" "$(mk "$WATCH_PATH" '[]' sess-block-7)" 2 "nothing is running" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 

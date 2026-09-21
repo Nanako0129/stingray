@@ -155,7 +155,28 @@ EOF
 # more, which is 0.5% more than the old pattern caught and 0.05% of all
 # messages. Both numbers, because "+0.5%" on its own reads as a share of the
 # 19,450 and would overstate it tenfold.
-WATCH_RE='監看|監控|盯著|盯住|輪詢|持續追蹤|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|poll(ing)?|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)'
+# A watch claim needs a verb AND a thing being watched. The verbs alone were
+# matching topic, not commitment: across 31,088 assistant text blocks from real
+# transcripts, 476 lines matched, 401 of them (84%) through a bare verb with no
+# narrowing, and only 15 of those 401 carried any first-person marker. The hits
+# included a CV line ("我做過跨 13 個節點的監控平台"), a quoted requirement, and
+# a release announcement whose subject was a poller that used to hang — that
+# last one blocked a real turn with nothing running. Requiring a target within
+# 20 characters takes 401 to 68, and every one of the 7 lines that 12 would
+# have dropped and 20 keeps is a genuine watch statement, which is why the
+# window is 20: real messages put a commit sha or a URL between the verb and
+# its object.
+#
+# `poll` is bracketed by non-identifier characters so a filename does not read
+# as a promise: poll-coderabbit.sh matched the bare form on its own name.
+#
+# The cost is real and is not a tuning problem. "Round 2 輪詢中", "輪詢在背景"
+# and "輪詢中" name no target at all, so no window recovers them; they are in
+# tests/watch-fixture.tsv as `short` and the runner reports them as COST rather
+# than letting the omission pass as success.
+WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
+WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
+WATCH_RE="(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|(${WATCH_TARGET})[^。]{0,20}(${WATCH_VERB})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
 watch_claimed=0
 watch_unresolved=0
 if printf '%s' "$last" | grep -qE "$WATCH_RE"; then

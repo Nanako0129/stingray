@@ -1,0 +1,41 @@
+# stingray shape 3 — WATCH_RE regression fixture
+#
+# Columns: expect <TAB> origin <TAB> text
+#   expect = watch   the line promises to watch an external result; WATCH_RE must match
+#   expect = quiet   the line does not; WATCH_RE must not match
+#
+# origin records where the line came from, because a fixture whose provenance is
+# lost becomes a list of strings someone later edits to make the tests pass.
+#   live-fp    an observed false positive: this exact text blocked a real turn
+#   live-tp    a real promise from a real session
+#   control    written for this fixture, labelled by hand
+#   short      a real promise too short to carry a target keyword; see NOTE below
+#
+# NOTE on `short`: these are genuine promises that the "bare keyword + target
+# keyword within N characters" shape cannot recover at ANY window size, because
+# the sentence contains no target keyword at all. Widening 12 -> 20 changes
+# nothing for them (measured). They are listed as `watch` so the cost of that
+# shape stays visible in the run output instead of being quietly accepted.
+
+quiet	live-fp	過去旗標缺少參數時，無限迴圈發生在參數解析階段，根本未進入輪詢
+quiet	live-fp	最危險的是 --timeout ""，實測觀察到它未發起任何輪詢就直接回傳 RESULT=TIMEOUT
+quiet	live-fp	pgrep 無 poll 程序
+quiet	live-fp	誤判現場｜Stop hook 原文，以及實際沒有任何東西在等的驗證（PR 已合併、release 已發、pgrep 無 poll 程序）
+quiet	control	監看這個詞出現在這句話裡，但這句話沒有承諾任何事
+quiet	control	我做過跨 13 個節點的監控平台
+quiet	control	客戶要求監控所有外部介接
+quiet	control	安靜監控中
+quiet	control	這支輪詢器過去會卡死，v0.2.3 修好了
+quiet	control	poll-coderabbit.sh 的參數解析有缺陷
+quiet	control	The poller used to hang; polling never started
+watch	live-tp	我會輪詢那個 PR
+watch	live-tp	持續追蹤 CI 直到綠燈
+watch	live-tp	我已經開始輪詢最新 head 的自動審查結果
+watch	live-tp	我會盯著 CodeRabbit 的結果
+watch	control	接下來會監看這個 PR 的 review 狀態
+watch	control	我會等 CodeRabbit 的審查結果回來
+watch	control	I'll poll the CI until it goes green
+watch	control	keep an eye on the review
+watch	short	Round 2 輪詢中
+watch	short	輪詢在背景
+watch	short	輪詢中
