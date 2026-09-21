@@ -61,7 +61,7 @@ claude：  〔改設定、跑測試〕
 
 所有例外路徑皆會以 exit 0 退出：缺少 API key、缺少 `jq`、找不到 `questions.json`、非 loopback 的純 HTTP 端點、送出前掃描命中憑證特徵、網路逾時、HTTP 非 200 回應、格式錯誤的回傳本體、評分超出 [0, 1] 或低於門檻、無法讀取 `background_tasks`，以及無法寫入攔阻計數。
 
-在任何失敗情況下，行為與未安裝此 plugin 完全一致。stingray 只能督促模型繼續處理，無法替模型免除工作。所有失敗皆屬字面意義上的 fail-open──對話輪次依原樣結束。由於被扣下的是一句提示而非執行權限，失效的設定不會放行未驗證的操作，外部服務中斷亦不會演變為無聲通過。
+在任何失敗情況下，行為與未安裝此 plugin 完全一致。stingray 只能督促模型繼續處理，無法替模型免除工作。所有失敗皆屬字面意義上的 fail-open──對話輪次依原樣結束。由於被扣下的是一句提示而非執行權限，設定失效不會讓它核准任何工作。但服務中斷確實代表這一輪沒有被檢查過就結束了——那跟你沒裝這個 plugin 的處境相同，這也正是這個失敗方向安全的理由，只是它不等於「檢查過了」。
 
 ## 安裝
 
@@ -100,7 +100,7 @@ export STINGRAY_SHADOW=1
 
 ```bash
 claude plugin list | grep stingray
-tail -f ~/.local/state/stingray/decisions.jsonl   # 進入 shadow 或 active 模式前不會產生內容
+tail -f ~/.local/state/stingray/decisions.jsonl   # 形狀 3 攔下收尾前也會寫入
 ```
 
 ### 手動串接 hook
@@ -209,7 +209,7 @@ command -v jq || sudo apt install jq  # Debian/Ubuntu
 
 **工作任務的核心內容依然留存於文字中。** 閱讀這些 payload 可得知某個配額視窗讀取值為 80% 而同視窗內 47 個樣本記錄為 77%、某個 60 秒盲輪詢仍在運作，以及某目錄下存在六個標註日期為 2026-08-22 的復原檔。特定識別碼已被移除，但正在開發的模組、發生的故障細節，以及預計採用的解法依然可讀。
 
-TypeSafe 資料處理位於美國境內，未聲明資料保留期限，責任上限為美金 50 元。啟用網路傳輸前請詳閱 `payload-audit.txt`。`STINGRAY_SHADOW=1` 依舊會送出資料；唯有預設關閉狀態完全不發送網路請求。
+TypeSafe 資料處理位於美國境內，未聲明資料保留期限，責任上限為美金 50 元。啟用網路傳輸前請詳閱 `payload-audit.txt`。`STINGRAY_SHADOW=1` 依舊會送出資料。完全不發出網路請求的只有兩種狀態：預設未設定，以及單獨設定 `STINGRAY_SHAPE3=1`——後者在進入請求路徑前就退出。
 
 ## 校準
 

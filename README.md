@@ -61,7 +61,7 @@ The nudge delivered on interception is a fixed paragraph written to stderr, not 
 
 Every failure path exits 0: missing API keys, absent `jq`, missing `questions.json`, endpoints that are neither HTTPS nor loopback, credential patterns spotted in outgoing payloads, timeouts, non-200 responses, malformed bodies, scores outside [0, 1] or below threshold, unreadable `background_tasks`, or failures writing the interception counter.
 
-In every failure mode, stingray leaves session behavior identical to an environment where the plugin was never installed. The hook can prompt additional work; it can never permit less. Every failure fails open by allowing the turn to conclude normally. Because the hook withholds an intervention rather than granting a permission, defective configurations cannot approve unverified work, and service outages cannot produce silent passes.
+In every failure mode, stingray leaves session behavior identical to an environment where the plugin was never installed. The hook can prompt additional work; it can never permit less. Every failure fails open by allowing the turn to conclude normally. Because the hook withholds an intervention rather than granting a permission, a defective configuration cannot approve work. An outage does mean the check did not run and the turn ended unexamined — the same position you are in without the plugin, which is why this direction is the safe one, but it is not the same as the turn having been checked.
 
 ## Install
 
@@ -100,7 +100,7 @@ Verify that the plugin is loaded:
 
 ```bash
 claude plugin list | grep stingray
-tail -f ~/.local/state/stingray/decisions.jsonl   # empty until shadow or active mode
+tail -f ~/.local/state/stingray/decisions.jsonl   # written by shape 3 too, before it blocks
 ```
 
 ### Manual hook configuration
@@ -209,7 +209,7 @@ Across 48 captured payloads from real turns, all eight tracked leak categories r
 
 The **substance of the work survives transmission**. Reading those payloads reveals that a quota window was measured at 80% while 47 samples in the same window reported 77%, that a 60-second blind poll was running, and that six recovery files dated 2026-08-22 were present in a directory. Identifiers were masked; the operational task, the error encountered, and the planned resolution remained legible.
 
-TypeSafe processes requests in the United States, does not publish a retention limit, and caps liability at USD 50. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire; only the default unset state transmits nothing.
+TypeSafe processes requests in the United States, does not publish a retention limit, and caps liability at USD 50. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. Two states make no outbound request at all: the default unset state, and `STINGRAY_SHAPE3=1` on its own, which exits before the request path.
 
 ## Calibration
 
