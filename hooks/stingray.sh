@@ -46,35 +46,56 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
 # ── What counts as a claim to watch something ────────────────────────────────
 #
-# A claim needs a verb AND a thing being watched. The verbs alone were matching
-# topic, not commitment: across 31,088 assistant text blocks from real
-# transcripts, 476 lines matched, 401 of them (84%) through a bare verb with no
-# narrowing, and only 15 of those 401 carried any first-person marker. The hits
-# included a CV line ("我做過跨 13 個節點的監控平台"), a quoted requirement, and
-# a release announcement whose subject was a poller that used to hang — that
-# last one blocked a real turn with nothing running. Requiring a target within
-# 20 characters takes those 401 to 68. The window is 20 rather than 12 because
-# all seven lines 12 drops and 20 keeps are genuine: real messages put a commit
-# sha or a URL between the verb and its object.
+# Every count below is over whole assistant messages, because that is what the
+# hook matches: 2,527 messages from 60 transcripts across 54 sessions. An
+# earlier version of this comment cited 31,088, which was the line count of the
+# same corpus after splitting on newlines, and reported per-line ratios. That
+# was the wrong unit in a way that mattered — a message whose one line says
+# 輪詢 and whose next says CI matches as a message and does not match line by
+# line — so the numbers here replace it rather than restate it.
+#
+# A claim needs a verb AND a thing being watched. The verbs alone matched topic,
+# not commitment: the shipped regex before this change matched 183 messages, 141
+# of them through a bare verb with no narrowing, and only 17 of those 141 carried
+# any first-person marker. The hits included a CV line ("我做過跨 13 個節點的監控
+# 平台"), a quoted customer requirement, and a release announcement whose subject
+# was a poller that used to hang — that last one blocked a real turn with nothing
+# running. Requiring a target takes 183 to 55.
+#
+# The window is 20 rather than 12: forward-branch hits go 8 to 13, and the five
+# it adds are genuine. Real messages put a commit sha or a URL between the verb
+# and its object, as in "輪詢最新 head（7758156）的自動審查結果".
 #
 # `poll` is bracketed by non-identifier characters so a filename does not read
 # as a promise: poll-coderabbit.sh matched the bare form on its own name.
 #
-# Reverse order — target first, then verb — recovers the progressive form that
-# the forward shape cannot see: "Codex 輪詢中", "監看已掛上". Of 63 reverse-only
-# hits in the corpus, 36 are that form against a single nominalisation, so the
-# branch earns its place. It also reads "CI 的輪詢器壞了" as a promise, because
-# there the verb is a noun. A possessive or demonstrative immediately before the
-# verb marks exactly that case: on eight constructed sentences of that shape it
-# caught 8 of 8, and it cost 2 of the 63 real hits.
+# Reverse order — target first, then verb — supplies 27 of the 55, the
+# progressive form the forward shape cannot see: "Codex 輪詢中", "監看已在背景
+# 掛上". Its value is NOT established beyond one writing habit: 26 of those 27
+# messages come from a single session out of the 54. It is kept because the
+# exclusion below costs nothing, not because the corpus settles it.
+#
+# The reverse order also reads "CI 的輪詢器壞了" as a promise, because there the
+# verb is a noun. A possessive or demonstrative immediately before the verb marks
+# that case: on eight constructed sentences of the shape it catches 8 of 8, and
+# it removes 0 of the 55 real hits. (On the line-split corpus it appeared to cost
+# 2; both were lines of a message that claimed a watch elsewhere in the same
+# message, so at the unit the hook actually uses they were never lost.)
+#
+# What the exclusion cannot separate is a nominalised watch that is genuinely in
+# progress — "CI 的監看還掛著" reads as quiet. That is a real miss, not a bug in
+# the rule: 監看 there IS a noun, and telling the two apart needs the aspect
+# marker after it, which is a whitelist that would accrete exactly as a noun
+# blocklist would. Those sentences are in tests/watch-fixture.tsv as `nom-cost`,
+# expected quiet, so the trade-off is recorded rather than rediscovered.
 #
 # ERE has no lookbehind, so the exclusion cannot live inside WATCH_RE. It is a
 # separate match, and it only applies when nothing else matched — a line that
 # also carries a forward claim keeps it.
 #
-# The cost that remains is not a tuning problem. "Round 2 輪詢中", "輪詢在背景"
-# and "輪詢中" name no target at all, so no window recovers them; they are in
-# tests/watch-fixture.tsv as `short` and the runner reports them as COST rather
+# The cost that remains beyond that is not a tuning problem. "Round 2 輪詢中",
+# "輪詢在背景" and "輪詢中" name no target at all, so no window recovers them;
+# they are in the fixture as `short` and the runner reports them as COST rather
 # than letting the omission pass as success.
 WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
 WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'

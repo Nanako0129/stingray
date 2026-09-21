@@ -10,6 +10,12 @@
 #   live-tp    a real promise from a real session
 #   control    written for this fixture, labelled by hand
 #   short      a real promise too short to carry a target keyword; see NOTE below
+#   nom-cost   a genuine watch written as a possessive noun phrase ("CI 的監看還
+#              掛著"). The possessive exclusion reads these as quiet and that is
+#              accepted: separating them needs an aspect whitelist after the verb,
+#              which accretes the way a noun blocklist does. Listed as `quiet`
+#              because that is the shipped behaviour — writing the wish as the
+#              expectation only teaches the next person to edit the test green.
 #   rev-fp     target-then-verb text that describes a poller rather than promising
 #              to watch one. The reverse branch reads these as claims unless a
 #              possessive or demonstrative marks the verb as a noun; they are
@@ -54,3 +60,9 @@ quiet	rev-fp	deploy 的監看面板壞掉三天了
 quiet	rev-fp	PR 裡那段 polling 的程式碼已經刪掉
 watch	live-tp	Codex 輪詢中
 watch	live-tp	Codex auto loop 監看已在背景掛上，有結果我回報
+
+quiet	nom-cost	CI 的監看還掛著
+quiet	nom-cost	這個 PR 的輪詢跑在背景
+quiet	nom-cost	review 的監看我還開著
+quiet	nom-cost	那支 PR 的輪詢已經掛上了
+quiet	nom-cost	Codex 對 PR #168 的監看仍在跑
