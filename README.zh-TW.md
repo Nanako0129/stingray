@@ -60,7 +60,7 @@ stingray 可以要求模型多做事，永遠不能讓它少做事。每一次�
 
 ## 安裝
 
-> **提醒：**下面每一行指令都寫成 **user scope**——裝一次，每個專案都能用。
+> **提醒：** 下面每一行指令都寫成 **user scope**——裝一次，每個專案都能用。
 
 ### Claude Code plugin
 
@@ -77,9 +77,9 @@ claude plugin update stingray
 claude plugin uninstall stingray
 ```
 
-> **小提醒：**session 內的 `/plugin install` 對話框會問你要哪個 scope，選 **User**。
+> **小提醒：** session 內的 `/plugin install` 對話框會問你要哪個 scope，選 **User**。
 
-> **這裡的「已驗證」是什麼意思：**manifest 與上面兩行指令都對著本機 checkout 實際跑過——marketplace 註冊成功、`plugin install` 回報成功、`plugin list` 顯示 `stingray@stingray` 在 user scope 且 enabled。在沒有 export 任何開關的情況下，餵進一筆本來會觸發形狀 3 的 payload，它 `exit 0` 且不建立任何 state 目錄，所以剛裝好的狀態確實是惰性的。`Nanako0129/stingray` 那種寫法讀的是預設分支，要等這個 PR 合併之後才能實際驗證。
+> **這裡的「已驗證」是什麼意思：** manifest 與上面兩行指令都對著本機 checkout 實際跑過——marketplace 註冊成功、`plugin install` 回報成功、`plugin list` 顯示 `stingray@stingray` 在 user scope 且 enabled。在沒有 export 任何開關的情況下，餵進一筆本來會觸發形狀 3 的 payload，它 `exit 0` 且不建立任何 state 目錄，所以剛裝好的狀態確實是惰性的。`Nanako0129/stingray` 那種寫法在合併後也照樣跑過一遍：從 GitHub 加 marketplace、以 user scope 安裝，然後餵一筆本來會觸發形狀 3 的 payload，仍然 exit 0 且不建立 state 目錄。
 
 **光是裝好它不會做任何事。** 沒設開關之前 hook 是關的，這是刻意的：一個落地就開始打斷你的 plugin，你沒辦法評估它。挑一個，放進你 shell 會 export 的地方：
 
@@ -146,7 +146,7 @@ command -v jq || sudo apt install jq  # Debian／Ubuntu
 
 | 變數 | 效果 |
 |------|------|
-| *（什麼都沒設）* | **預設。**hook 立刻退出。什麼都不跑，什麼都不送。 |
+| *（什麼都沒設）* | **預設。** hook 立刻退出。什麼都不跑，什麼都不送。 |
 | `STINGRAY_SHADOW=1` | 呼叫 Jev、寫決策紀錄、**永不擋人**。從這裡開始。 |
 | `STINGRAY=1` | 對形狀 1 與 2 擋人。 |
 | `STINGRAY_SHAPE3=1` | 對形狀 3 擋人。**可以單獨使用**：形狀 3 不需要 key 也不需要網路，所以光設這一個就能啟用 hook，而不會打開那兩個有自己門檻要過的 Jev 判斷。`STINGRAY_SHADOW=1` 的優先序高於它。 |

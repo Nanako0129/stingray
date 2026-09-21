@@ -79,7 +79,7 @@ claude plugin uninstall stingray
 
 > **Tip:** The in-session `/plugin install` dialog asks you to pick a scope — choose **User** there.
 
-> **What "verified" means here:** the manifest and both commands were exercised against a local checkout — the marketplace registers, `plugin install` reports success, and `plugin list` shows `stingray@stingray` enabled at user scope. With no switch exported, a payload that would otherwise fire shape 3 exits 0 and creates no state directory, so a fresh install really is inert. The `Nanako0129/stingray` form reads the default branch and can only be exercised once this is merged there.
+> **What "verified" means here:** the manifest and both commands were exercised against a local checkout — the marketplace registers, `plugin install` reports success, and `plugin list` shows `stingray@stingray` enabled at user scope. With no switch exported, a payload that would otherwise fire shape 3 exits 0 and creates no state directory, so a fresh install really is inert. The `Nanako0129/stingray` form was exercised the same way after the merge: marketplace added from GitHub, plugin installed at user scope, and a payload that would otherwise fire shape 3 still exits 0 with no state directory.
 
 **Installing it does nothing on its own.** The hook is off until a switch is set, which is deliberate: a plugin that starts interrupting turns the moment it lands is not something you can evaluate. Pick one and put it where your shell exports it:
 
