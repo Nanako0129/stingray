@@ -139,7 +139,7 @@ No SDK, and nothing else to install.
 
 ## API key
 
-Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3 needs no key and no network.
+Shapes 1 and 2 call TypeSafe's System One (`jev-1.13.0`). Shape 3's **certain** case — a promise with nothing running or scheduled behind it — needs no key and no network. Its correspondence judgement does, because that one asks the model whether the running work matches the promise.
 
 1. Get a key at <https://typesafe.ai>.
 2. Put it in `~/.config/typesafe/api_key` (`chmod 600`), or export `TYPESAFE_API_KEY`. The file is preferred: an environment variable is visible to every process you launch.

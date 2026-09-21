@@ -139,7 +139,7 @@ command -v jq || sudo apt install jq  # Debian／Ubuntu
 
 ## API key
 
-形狀 1 與 2 會呼叫 TypeSafe 的 System One（`jev-1.13.0`）。形狀 3 不需要 key，也不需要網路。
+形狀 1 與 2 會呼叫 TypeSafe 的 System One（`jev-1.13.0`）。形狀 3 的**確定**情況——宣告要盯著某個東西、背後什麼都沒在跑也沒排程——不需要 key，也不需要網路。但它的對應關係判斷需要，因為那一題是問模型「在跑的工作跟承諾的對不對得上」。
 
 1. 到 <https://typesafe.ai> 申請 key。
 2. 放進 `~/.config/typesafe/api_key`（`chmod 600`），或 export `TYPESAFE_API_KEY`。建議用檔案：環境變數對你啟動的每一個 process 都看得見。

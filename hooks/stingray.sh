@@ -243,6 +243,7 @@ redact_text() {
   perl -0777 -pe '
     s/\bAuthorization\s*:\s*\S+(\s+\S+)?/Authorization: <redacted>/gi;
     s/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/$1 <redacted>/g;
+    s/\bgithub_pat_[A-Za-z0-9_]{20,}/<redacted credential>/g;
     s/("?)(?:api[_-]?key|auth[_-]?token|access[_-]?token|secret|password|passwd|pwd)\1\s*[:=]\s*"?[^"\s,;}]{6,}"?/<redacted credential>/gi;
   ' | perl -0777 -pe '
     s/```.*?```/ /gs;                      # fenced code blocks (paired)
@@ -317,7 +318,7 @@ body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
 # also carries tool names taken from the transcript, background statuses and the
 # question text; scanning only the redacted message left those uncovered while
 # the README claimed the outgoing bytes were scanned.
-if printf '%s' "$body" | grep -qE 'sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
+if printf '%s' "$body" | grep -qE 'sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
   echo "(stingray: payload held — secret pattern in outgoing request)" >&2
   exit 0
 fi
