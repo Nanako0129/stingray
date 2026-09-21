@@ -135,7 +135,17 @@ EOF
 # because URLs are replaced in place; a path does. tests/acceptance.sh case 7
 # uses a path for exactly that reason — a URL there would pass even against an
 # implementation that (wrongly) matched on redacted text.
-WATCH_RE='監看|監控|盯著|盯住|輪詢|持續追蹤|等 ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|完成|結果|綠)|poll(ing)?|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)'
+# The waiting verb takes a suffix in real Chinese — 等著, 等待, 等到 — and the
+# outcome word is not always one of the first four tried. Both gaps showed up on
+# the very first live shadow run, on "我會等著 CodeRabbit 的審查結果" with nothing
+# running in the background: shape 3 should have recorded it and did not.
+# Broadening costs almost nothing, because the keyword list after the verb does
+# the narrowing. Measured across 19,450 assistant messages from real
+# transcripts: the old pattern matched 1,690 lines, the new one 1,699 — nine
+# more, which is 0.5% more than the old pattern caught and 0.05% of all
+# messages. Both numbers, because "+0.5%" on its own reads as a share of the
+# 19,450 and would overstate it tenfold.
+WATCH_RE='監看|監控|盯著|盯住|輪詢|持續追蹤|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|poll(ing)?|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)'
 if printf '%s' "$last" | grep -qE "$WATCH_RE"; then
   # Require an actual array. Neither a missing key nor a null may be read as
   # "nothing is running": has() is true for null, and [ .[]? ] over null counts

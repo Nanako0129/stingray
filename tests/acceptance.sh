@@ -140,6 +140,40 @@ check "16 background_tasks null → pass" \
   "$(mk "$WATCH_PLAIN" '[]' sess-16 | jq -c '.background_tasks=null')" 0 "no key" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
+# 17. Phrasings the first live shadow run showed were missed. The waiting verb
+#     takes a suffix (等著 / 等待) and the outcome word is not always one of the
+#     first four that were tried, so each of these was a real positive that
+#     shape 3 recorded nothing for.
+# One phrase per alternative that was added, so removing any single one of them
+# fails a case rather than passing on the strength of its neighbours.
+#
+# Each phrase must make its own alternative load-bearing. The first attempt at
+# the 出來 case was 「等審查結果出來我告訴你」, which contains 結果 — already an
+# outcome word — so the pattern matched on that and deleting 出來 changed
+# nothing. An ablation found it: remove one alternative, and exactly one case
+# must fail.
+# Set here, not defaulted inside the loop: ${phrase_n:-0} would inherit an
+# exported phrase_n and shift every label and session id.
+phrase_n=0
+for phrase in \
+  "沒問題，我會等著 CodeRabbit 的審查結果。" \
+  "我會等待 CodeRabbit 的結果。" \
+  "我會等到 review 完成再往下做。" \
+  "我會等 CI 跑完再回報。" \
+  "等 CodeRabbit 的回覆進來我就處理。" \
+  "等 CI 的數字出來我再判斷。" \
+  "等審查結果回來我告訴你。"
+do
+  # A counter, not $RANDOM: a test that varies between runs cannot be replayed,
+  # and this suite already has one failure nobody could reproduce. Numbered
+  # rather than sliced, because ${var:0:14} counts characters under a UTF-8
+  # locale and bytes otherwise, so the label would be cut mid-character on a
+  # runner that does not set one.
+  phrase_n=$((phrase_n + 1))
+  check "17.$phrase_n watch phrasing" "$(mk "$phrase" '[]' "sess-17-$phrase_n")" \
+    2 "nothing is running" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+done
+
 # 11. Block budget, independent of stop_hook_active. Feed the same blocking
 #     case four times with stop_hook_active pinned false, as if the harness
 #     guard had been reset; the fourth must refuse to block.
