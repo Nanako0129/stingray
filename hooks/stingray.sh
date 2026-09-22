@@ -23,7 +23,8 @@
 #
 # Friction only ever goes up. Every failure path exits 0, leaving behaviour
 # identical to not having this plugin installed; the only exit that blocks is
-# nudge(). stingray must never make the model do less.
+# block(), which nudge() and the language check both call. stingray must never
+# make the model do less.
 #
 # The list of those paths lives in the README and is deliberately not repeated
 # here: it was repeated once, went stale in this copy while the README stayed
@@ -165,11 +166,19 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # of these shapes behave in general.
 WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
 WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
-# Not a possessive or a demonstrative. Spelled as a character class so the
-# refusal is part of the match, never a second pattern applied afterwards.
-WATCH_NOPOSS='[^。的支段個]'
-WATCH_FWD="(^|${WATCH_NOPOSS})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
-WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_NOPOSS}(${WATCH_VERB})"
+# Not a possessive or a demonstrative, as the one or two characters right before
+# the verb. Spelled into the match so the refusal can never be applied to some
+# other hit afterwards.
+#
+# 支, 段 and 個 count only after 那 or 這. As first written the class refused all
+# three outright, which also refused them as measure words: "我開了三個監看盯 CI"
+# and "每支輪詢都會盯 PR" came out quiet. Measured on the corpus, the bare form
+# guarded against 0 demonstratives (那／這 + 支段個 + verb never occurs) while it
+# could refuse 5 lines, 2 of them genuine claims. Found by the session reviewing
+# the previous release.
+WATCH_PRE='([^。的支段個]|[^那這。][支段個])'
+WATCH_FWD="(^|${WATCH_PRE})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
+WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_PRE}(${WATCH_VERB})"
 WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
 
 # The one place that decides. tests/watch-fixture.sh drives this through
@@ -182,11 +191,109 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
   return 1
 }
 
+# ── What counts as a reply in the wrong language ─────────────────────────────
+#
+# The configured language is the "language" key in Claude Code's settings, read
+# in the order Claude Code applies them: the project's settings.local.json, its
+# settings.json, then the user's settings.json under CLAUDE_CONFIG_DIR (so an
+# account kept in a separate config directory is read from its own file).
+#
+# Only Chinese targets are checked, because the test is a script test: prose that
+# should be Han and is not. Other languages return "not wrong" and nothing
+# happens. Simplified versus Traditional is not distinguished either.
+#
+# Code fences, inline code, URLs, block quotes and path-like tokens are removed
+# first — they are English in every language and say nothing about the prose.
+# Fences are removed the way CommonMark closes them: three or more backticks or
+# tildes, closed by a line of the same character at least as long, or by the end
+# of the message. A regex for paired ``` alone left a ~~~ block, or a ```` block
+# holding ```, in the prose sample, where its English could block a zh-TW reply.
+# Across the 2,967 messages below, 0 lines open a ~~~ fence and 0 open a ````
+# one; the false-block direction is why they are handled anyway.
+#
+# Inline code is removed at any backtick length — a run closed by a run of the
+# same length, as CommonMark closes it. Only single backticks were removed at
+# first, so a zh-TW reply quoting commands in double backticks kept their
+# English and was blocked: measured, 8 Han to 16 words.
+#
+# A span may cross a line break inside a paragraph but never a blank line,
+# because a CommonMark code span cannot cross a paragraph. Letting it cross
+# every newline was proposed and measured: a stray backtick in the first
+# paragraph paired with one in the third and removed the English second
+# paragraph whole, 39 Han and 17 words becoming 18 and 0.
+#
+# A URL is removed as printable ASCII only. \S+ ran on through Chinese written
+# straight after it with no space between, as Chinese is: a reply citing a PR
+# link lost the rest of its sentence and kept 6 of its Han characters. The same
+# rule was in redact_text and is fixed there too, where it had been removing
+# prose from what is sent to Jev while claiming to replace URLs in place.
+#
+# A backtick opener's info string may not contain a backtick, as in CommonMark.
+# Without that, a first line reading ```js``` opened a "fence" that ran to the
+# next ``` line and removed the English prose in between: a whole English reply
+# came out as 1 Han and 0 words, and passed. The paired fallback /```.*?```/ is
+# gone for the same reason — it spans lines and eats whatever lies between two
+# stray triple backticks. Same-line ```code``` is left to the inline-code rule.
+#
+# What is left is counted as Han characters against Latin words of two letters or
+# more, and the reply is wrong when fewer than 40% of those are Han, provided
+# there are at least 12 of them together. The floor keeps "OK", "LGTM" and a
+# terse status line from being judged at all.
+#
+# Measured with these two functions, not a reimplementation, over 2,967 real
+# assistant messages from sessions configured for zh-TW. The floor was chosen by
+# what each value catches against how close it lets a zh-TW reply come:
+#
+#   floor   English model replies caught   lowest zh-TW score   margin
+#     20                  3                       63%              23
+#     12                  7                       60%              20
+#      8                 13                       45%               5
+#
+# 20 was the first value; a review pointed at the short English replies it
+# skipped ("Now build and test on the Windows machine:"). 8 catches all 13 of
+# them but lets terse zh-TW status lines — "#92 全綠、Codex CLEAN。merge 後推
+# tag。", 50% — sit five points from the line, and a false block is the
+# direction this hook exists not to take. At 12, 2,834 messages are judged, no
+# zh-TW reply scores under 60%, and the ones under 40% are all English: the 7
+# model replies (one quoting 「超前」「保留」「超支」, at 25%) and 6 notices
+# written by the harness itself. The English side of the line rests on those 7.
+#
+# The harness notices — "You've hit your session limit …", "API Error:
+# Connection lost mid-response …" — are recorded in transcripts as assistant
+# text. The hooks reference says a turn that ends on an API error fires
+# StopFailure, with error types including rate_limit and billing_error, which
+# would keep them away from a Stop hook. That is documented, not measured, and
+# the same reference has been wrong about Stop before. If one does arrive it is
+# blocked once and the re-entry guard stops a second.
+lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
+  printf '%s' "$1" | perl -CSD -0777 -ne '
+    s/^[ \t]*(`{3,})[^`\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
+    s/^[ \t]*(~{3,})[^\n]*\n.*?(?:^[ \t]*\1~*[ \t]*$|\z)/ /gms;
+    s/(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)/ /gs;
+    s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;
+    s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
+    my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
+}
+lang_wrong() {  # lang_wrong <language> <text>; 0 = the prose is not in <language>
+  case "$1" in zh*|ZH*) ;; *) return 1 ;; esac
+  read -r lh lw <<EOF
+$(lang_share "$2")
+EOF
+  case "$lh$lw" in ''|*[!0-9]*) return 1 ;; esac
+  [ $((lh + lw)) -ge 12 ] || return 1
+  [ $((lh * 100)) -lt $((40 * (lh + lw))) ]
+}
+
 # Fixture entry point. Answers for one line and exits; reads no stdin, writes no
 # state, makes no request.
 if [ "${1:-}" = "--watch-test" ]; then
   watch_claims "${2:-}" && { echo watch; exit 0; }
   echo quiet; exit 0
+fi
+# Same contract for the language rule: --lang-test <language> <text>.
+if [ "${1:-}" = "--lang-test" ]; then
+  lang_wrong "${2:-}" "${3:-}" && { echo wrong; exit 0; }
+  echo ok; exit 0
 fi
 
 
@@ -200,8 +307,12 @@ fi
 # calibrated.
 #
 # STINGRAY_SHADOW wins over both: shadow means record, never block.
+#
+# STINGRAY_LANG is the second local check and shares the mode: with either local
+# switch alone, nothing leaves the machine. The mode was called "shape3" until
+# the language check joined it; decision records written before carry that name.
 MODE="off"
-[ "${STINGRAY_SHAPE3:-}" = "1" ] && MODE="shape3"
+{ [ "${STINGRAY_SHAPE3:-}" = "1" ] || [ "${STINGRAY_LANG:-}" = "1" ]; } && MODE="local"
 [ "${STINGRAY:-}" = "1" ] && MODE="active"
 [ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
 [ "$MODE" = "off" ] && exit 0
@@ -211,6 +322,13 @@ MODE="off"
 # behind it, which arithmetic settles.
 shape3_blocks=0
 [ "${STINGRAY_SHAPE3:-}" = "1" ] && [ "$MODE" != "shadow" ] && shape3_blocks=1
+# Shape 3 is evaluated — recorded, not necessarily blocking — with its own switch
+# or in either Jev mode, which is where its calibration records come from. With
+# only the language switch on it is not evaluated at all.
+shape3_on=0
+{ [ "${STINGRAY_SHAPE3:-}" = "1" ] || [ "$MODE" = "active" ] || [ "$MODE" = "shadow" ]; } && shape3_on=1
+lang_blocks=0
+[ "${STINGRAY_LANG:-}" = "1" ] && [ "$MODE" != "shadow" ] && lang_blocks=1
 
 # The correspondence judgement is a separate switch, off even when shape 3 is
 # blocking. It is a model answer with a borrowed threshold and no measurement
@@ -258,29 +376,71 @@ log() {   # log <shape> <score> <would_block>
   printf '%s\n' "$(jq -cn \
     --arg ts "$(date -u +%FT%TZ)" --arg s "$session" --arg m "$MODE" \
     --arg shape "$1" --arg score "$2" --arg wb "$3" --arg model "$MODEL" \
-    --arg qh "${qset_hash:-}" --arg secs "${secs:-}" \
-    '{ts:$ts,session:$s,mode:$m,shape:$shape,score:$score,would_block:$wb,
-      model:$model,qset_hash:$qh,secs:$secs}')" >>"$STATE_DIR/decisions.jsonl" 2>/dev/null
+    --arg qh "${qset_hash:-}" --arg secs "${secs:-}" --arg pid "$(j '.prompt_id')" \
+    '{ts:$ts,session:$s,prompt_id:$pid,mode:$m,shape:$shape,score:$score,
+      would_block:$wb,model:$model,qset_hash:$qh,secs:$secs}')" 2>/dev/null >>"$STATE_DIR/decisions.jsonl" \
+    || exit 0
 }
+# A record that cannot be written is a failure path like any other, and every
+# failure path exits 0. 2>/dev/null comes before the redirection on purpose:
+# bash applies redirections left to right, so with it after, a failed >> prints
+# "Is a directory" to stderr before the silencing takes effect, and that line
+# reaches the user as hook output. Measured on bash 3.2.57 — the /bin/bash that
+# hooks.json runs on macOS — and on 5.3. Without this, an unwritable decisions.jsonl beside a
+# writable block counter still reached block(): the hook blocked while the one
+# log that calibration depends on silently lost the decision.
+# prompt_id is recorded so that the block budget can later be keyed on it. The
+# budget counts every block in a session and never resets, so after MAX_BLOCKS
+# successful nudges the hook stops working for the rest of that session. What
+# it should bound is a run of blocks at one stop point. Whether a re-entry after
+# a block carries the same prompt_id as the turn it re-enters is the fact that
+# decides how, and it is not yet measured; these records are how it will be.
 
 # The only exit that blocks. The reason goes to stderr because stdout does not
 # reach the model (measured, see header).
-nudge() {  # nudge <shape description>
+block() {  # block <message>; the one exit that blocks
   # If the budget cannot be recorded, do not block. An unrecorded block is an
   # unbounded one: on a re-entry where stop_hook_active is unavailable nothing
   # would count the rounds. Failing to write is a failure path like any other.
-  printf '%s\n' "$((blocks + 1))" >"$count_file" 2>/dev/null || exit 0
-  cat >&2 <<EOF
-stingray: this turn looks like it stopped half-done ($1).
+  printf '%s\n' "$((blocks + 1))" 2>/dev/null >"$count_file" || exit 0
+  printf '%s\n' "$1" >&2
+  exit 2
+}
+nudge() {  # nudge <shape description>
+  block "stingray: this turn looks like it stopped half-done ($1).
 
 If the user's earlier instruction already authorised it, finish it now before
 ending the turn. If you are waiting on an external result (CI, a PR review),
 launch the polling command in the background before ending the turn. If you
 genuinely need a decision from the user, say which decision you are blocked on
-rather than simply stopping.
-EOF
-  exit 2
+rather than simply stopping."
 }
+
+# ── Language: computed locally. No model call, no API key required. ───────────
+# First, because a reply the user cannot read in their own language is the more
+# basic failure, and one block per stop can only carry one instruction.
+lang_setting() {  # lang_setting; prints the configured language, or nothing
+  lcwd=$(j '.cwd')
+  for f in ${lcwd:+"$lcwd/.claude/settings.local.json" "$lcwd/.claude/settings.json"} \
+           "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"; do
+    v=$(jq -r '.language // empty' "$f" 2>/dev/null)
+    [ -n "$v" ] && { printf '%s' "$v"; return; }
+  done
+}
+if [ "${STINGRAY_LANG:-}" = "1" ]; then
+  want=$(lang_setting)
+  if [ -n "$want" ] && lang_wrong "$want" "$last"; then
+    if [ "$lang_blocks" = "1" ]; then
+      log wrong_language 1 true
+      block "stingray: this turn's final message is not in the configured language
+(settings \"language\": \"$want\"; the prose outside code is mostly not $want).
+
+Rewrite that final message in $want now. Keep the content as it was, and leave
+code blocks, commands, paths and identifiers exactly as they are."
+    fi
+    log wrong_language 1 false
+  fi
+fi
 
 # ── Shape 3: computed locally. No model call, no API key required. ────────────
 # The declaration regex runs on the RAW message, before redaction and before
@@ -303,7 +463,7 @@ EOF
 # 19,450 and would overstate it tenfold.
 watch_claimed=0
 watch_unresolved=0
-if watch_claims "$last"; then
+if [ "$shape3_on" = "1" ] && watch_claims "$last"; then
   watch_claimed=1
   # Require an actual array. Neither a missing key nor a null may be read as
   # "nothing is running": has() is true for null, and [ .[]? ] over null counts
@@ -345,12 +505,12 @@ fi
 # grep have run — so this is not a zero-cost path, only a zero-request one.
 # Without this exit a key sitting in ~/.config would send this turn's message
 # anyway, and the switch would mean the opposite of what it says.
-[ "$MODE" = "shape3" ] && exit 0
+[ "$MODE" = "local" ] && exit 0
 
 KEY="${TYPESAFE_API_KEY:-${HOME:+$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}}"
 if [ -z "$KEY" ]; then
   marker="$STATE_DIR/nokey-$session"
-  [ -f "$marker" ] || { echo "(stingray: unavailable — no key; shapes 1/2 skipped)" >&2; : >"$marker"; }
+  [ -f "$marker" ] || { echo "(stingray: unavailable — no key; shapes 1/2 skipped)" >&2; : 2>/dev/null >"$marker"; }
   exit 0
 fi
 [ -s "$QUESTIONS" ] || { echo "(stingray: unavailable — questions.json not found)" >&2; exit 0; }
@@ -394,7 +554,7 @@ redact_text() {
     s/```.*?```/ /gs;                      # fenced code blocks (paired)
     s/^\s*>.*$/ /mg;                       # block quotes
     s/`[^`\n]{1,200}`/ /g;                 # inline code
-    s{https?://\S+|www\.\S+}{ }g;          # URLs (replaced in place, line survives)
+    s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;   # URLs, in place; see lang_share
   ' | perl -ne '
     next if m{(?:/Users/|/private/|/home/|~/|[A-Za-z]:\\)[^\s"'"'"'`,)]+};  # absolute paths
     next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b};                      # relative paths
@@ -438,10 +598,19 @@ fi
 # prompts are written by the model and carry project names and work detail, so
 # they go through the same redaction as the message. Command lines are still
 # never sent.
+# An absent or non-array background_tasks produces no output here, so the line
+# below reports the list as unavailable. It used to iterate with []? and report
+# "nothing running or scheduled" — unknown state sent to Jev as confirmed
+# inactivity, the same mistake shape 3 guards against with its own type check.
+# Observed in tests/network.sh B7, which sends a payload with background_tasks
+# deleted and reads the recorded request body: every question's
+# instructions.background is "background list unavailable", and with the old
+# expression restored it is "nothing running or scheduled".
 bg_text=$(printf '%s' "$input" | jq -r '
-  [ (.background_tasks[]? | "\(.status): \(.description // "(no description)")"),
+  if (.background_tasks | type) != "array" then empty else
+  [ (.background_tasks[] | "\(.status): \(.description // "(no description)")"),
     ((.session_crons // [])[]? | "scheduled: \(.prompt // "(no prompt)")") ]
-  | if length == 0 then "nothing running or scheduled" else join(" | ") end' 2>/dev/null)
+  | if length == 0 then "nothing running or scheduled" else join(" | ") end end' 2>/dev/null)
 [ -n "$bg_text" ] || bg_text="background list unavailable"
 bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
 [ -n "${bg_text// /}" ] || bg_text="background list unavailable"
