@@ -191,97 +191,84 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
   return 1
 }
 
-# ── What counts as a reply in the wrong language ─────────────────────────────
+# ── Whether a reply is in the configured language ────────────────────────────
+#
+# Jev decides, through the wrong_language question in questions.json. What is
+# done here is only whether to ask, and what to ask about.
 #
 # The configured language is the "language" key in Claude Code's settings, read
 # in the order Claude Code applies them: the project's settings.local.json, its
 # settings.json, then the user's settings.json under CLAUDE_CONFIG_DIR (so an
 # account kept in a separate config directory is read from its own file).
 #
-# Only Chinese targets are checked, because the test is a script test: prose that
-# should be Han and is not. Other languages return "not wrong" and nothing
-# happens. Simplified versus Traditional is not distinguished either.
+# This replaced a local rule that counted Han characters against English words
+# and blocked under 40%. That rule could only see English: Japanese scored as
+# nearly all Han because kana counted on neither side, and Korean or Russian
+# scored as nothing at all. Every fix to it moved the edge rather than removing
+# it, so the judgement went to the model, as the rest of this hook's language
+# judgements already had.
 #
-# Code fences, inline code, URLs, block quotes and path-like tokens are removed
-# first — they are English in every language and say nothing about the prose.
-# Fences are removed the way CommonMark closes them: three or more backticks or
-# tildes, closed by a line of the same character at least as long, or by the end
-# of the message. A regex for paired ``` alone left a ~~~ block, or a ```` block
-# holding ```, in the prose sample, where its English could block a zh-TW reply.
-# Across the 2,967 messages below, 0 lines open a ~~~ fence and 0 open a ````
-# one; the false-block direction is why they are handled anyway.
+# Measured before adopting it, on synthetic replies only — no real transcript was
+# sent — with the question worded as it is in questions.json:
 #
-# Inline code is removed at any backtick length — a run closed by a run of the
-# same length, as CommonMark closes it. Only single backticks were removed at
-# first, so a zh-TW reply quoting commands in double backticks kept their
-# English and was blocked: measured, 8 Han to 16 words.
+#   zh-TW replies, 7, including one of identifiers and one quoting English   0.10–0.23
+#   English, Japanese (kana-heavy and kanji-heavy), Korean, Russian, 6        0.97–0.98
+#   English quoting three Chinese terms                                        0.77
+#   Simplified Chinese against a zh-TW setting                                 0.29
+#   target English, reply Chinese / target Japanese, reply English      0.95 / 0.98
 #
-# A span may cross a line break inside a paragraph but never a blank line,
-# because a CommonMark code span cannot cross a paragraph. Letting it cross
-# every newline was proposed and measured: a stray backtick in the first
-# paragraph paired with one in the third and removed the English second
-# paragraph whole, 39 Han and 17 words becoming 18 and 0.
+# Two wording choices decided that result. Passing the setting as a bare "zh-TW"
+# left a plain Chinese reply at 0.49, on the line; passing a name —
+# "繁體中文（台灣，zh-TW）" — moved it to 0.16, so lang_name() turns common codes
+# into names. And the question is asked as "the prose is NOT in the language":
+# asked positively, the reply quoting Chinese terms scored 0.54 and passed.
+# Simplified Chinese is not caught at either wording, and is a known limit.
 #
-# A URL is removed as printable ASCII only. \S+ ran on through Chinese written
-# straight after it with no space between, as Chinese is: a reply citing a PR
-# link lost the rest of its sentence and kept 6 of its Han characters. The same
-# rule was in redact_text and is fixed there too, where it had been removing
-# prose from what is sent to Jev while claiming to replace URLs in place.
+# A reply is asked about only when it has prose to judge: at least 12 units once
+# code fences, inline code, URLs, block quotes and path-like tokens are removed.
+# Without that, a line of results such as "acceptance 49/0, network 10/0" was
+# judged not to be Chinese — 0.94 — which is true and useless. A unit is one
+# Han, kana or Hangul character, or one word of two or more letters in any other
+# script, so a Korean or Russian reply clears the floor as an English one does.
+# Kana, Hangul and non-Latin letters are near absent from the 2,967 zh-TW
+# messages this floor was first measured on — in 1, 1 and 3 of them — so the
+# floor behaves there as it did when it counted only Han and English words.
 #
-# A backtick opener's info string may not contain a backtick, as in CommonMark.
-# Without that, a first line reading ```js``` opened a "fence" that ran to the
-# next ``` line and removed the English prose in between: a whole English reply
-# came out as 1 Han and 0 words, and passed. The paired fallback /```.*?```/ is
-# gone for the same reason — it spans lines and eats whatever lies between two
-# stray triple backticks. Same-line ```code``` is left to the inline-code rule.
+# The removals follow CommonMark, and each came from a reply it once misjudged:
+# fences of three or more backticks or tildes, closed by the same character at
+# least as long or by the end of the message, their opener carrying no backtick
+# in its info string; inline code at any backtick length, across lines inside a
+# paragraph but never across a blank line; URLs as printable ASCII, so Chinese
+# written straight after a link is kept.
 #
-# What is left is counted as Han characters against Latin words of two letters or
-# more, and the reply is wrong when fewer than 40% of those are Han, provided
-# there are at least 12 of them together. The floor keeps "OK", "LGTM" and a
-# terse status line from being judged at all.
-#
-# Measured with these two functions, not a reimplementation, over 2,967 real
-# assistant messages from sessions configured for zh-TW. The floor was chosen by
-# what each value catches against how close it lets a zh-TW reply come:
-#
-#   floor   English model replies caught   lowest zh-TW score   margin
-#     20                  3                       63%              23
-#     12                  7                       60%              20
-#      8                 13                       45%               5
-#
-# 20 was the first value; a review pointed at the short English replies it
-# skipped ("Now build and test on the Windows machine:"). 8 catches all 13 of
-# them but lets terse zh-TW status lines — "#92 全綠、Codex CLEAN。merge 後推
-# tag。", 50% — sit five points from the line, and a false block is the
-# direction this hook exists not to take. At 12, 2,834 messages are judged, no
-# zh-TW reply scores under 60%, and the ones under 40% are all English: the 7
-# model replies (one quoting 「超前」「保留」「超支」, at 25%) and 6 notices
-# written by the harness itself. The English side of the line rests on those 7.
-#
-# The harness notices — "You've hit your session limit …", "API Error:
-# Connection lost mid-response …" — are recorded in transcripts as assistant
-# text. The hooks reference says a turn that ends on an API error fires
-# StopFailure, with error types including rate_limit and billing_error, which
-# would keep them away from a Stop hook. That is documented, not measured, and
-# the same reference has been wrong about Stop before. If one does arrive it is
-# blocked once and the re-entry guard stops a second.
-lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
+# The harness writes notices of its own into transcripts as assistant text —
+# "You've hit your session limit …". The hooks reference says a turn ending on
+# an API error fires StopFailure rather than Stop, which would keep them from
+# this hook. That is documented, not measured. If one does arrive, it is judged
+# once and the re-entry guard stops a second.
+prose_units() {  # prose_units <text>; prints how much prose there is to judge
   printf '%s' "$1" | perl -CSD -0777 -ne '
     s/^[ \t]*(`{3,})[^`\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
     s/^[ \t]*(~{3,})[^\n]*\n.*?(?:^[ \t]*\1~*[ \t]*$|\z)/ /gms;
     s/(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)/ /gs;
     s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;
     s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
-    my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
+    my $c = () = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/g;
+    my $w = () = /(?:(?![\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}])\p{L}){2,}/g;
+    print $c + $w;'
 }
-lang_wrong() {  # lang_wrong <language> <text>; 0 = the prose is not in <language>
-  case "$1" in zh*|ZH*) ;; *) return 1 ;; esac
-  read -r lh lw <<EOF
-$(lang_share "$2")
-EOF
-  case "$lh$lw" in ''|*[!0-9]*) return 1 ;; esac
-  [ $((lh + lw)) -ge 12 ] || return 1
-  [ $((lh * 100)) -lt $((40 * (lh + lw))) ]
+lang_name() {  # lang_name <setting>; a name Jev reads more reliably than a code
+  case "$1" in
+    zh-TW|zh-Hant-TW) echo "繁體中文（台灣，$1）" ;;
+    zh-HK|zh-Hant-HK) echo "繁體中文（香港，$1）" ;;
+    zh-Hant)          echo "繁體中文（$1）" ;;
+    zh-CN|zh-SG|zh-Hans|zh-Hans-*) echo "簡體中文（$1）" ;;
+    zh)               echo "中文（$1）" ;;
+    ja|ja-*)          echo "日文（$1）" ;;
+    ko|ko-*)          echo "韓文（$1）" ;;
+    en|en-*)          echo "英文（$1）" ;;
+    *)                echo "$1" ;;   # a name already, or a code left to Jev
+  esac
 }
 
 # Fixture entry point. Answers for one line and exits; reads no stdin, writes no
@@ -289,11 +276,6 @@ EOF
 if [ "${1:-}" = "--watch-test" ]; then
   watch_claims "${2:-}" && { echo watch; exit 0; }
   echo quiet; exit 0
-fi
-# Same contract for the language rule: --lang-test <language> <text>.
-if [ "${1:-}" = "--lang-test" ]; then
-  lang_wrong "${2:-}" "${3:-}" && { echo wrong; exit 0; }
-  echo ok; exit 0
 fi
 
 
@@ -416,9 +398,8 @@ genuinely need a decision from the user, say which decision you are blocked on
 rather than simply stopping."
 }
 
-# ── Language: computed locally. No model call, no API key required. ───────────
-# First, because a reply the user cannot read in their own language is the more
-# basic failure, and one block per stop can only carry one instruction.
+# ── Language: whether to ask Jev, and about which language ───────────────────
+# The judgement is made in the Jev section below. Nothing blocks here.
 lang_setting() {  # lang_setting; prints the configured language, or nothing
   lcwd=$(j '.cwd')
   for f in ${lcwd:+"$lcwd/.claude/settings.local.json" "$lcwd/.claude/settings.json"} \
@@ -427,20 +408,15 @@ lang_setting() {  # lang_setting; prints the configured language, or nothing
     [ -n "$v" ] && { printf '%s' "$v"; return; }
   done
 }
+lang_ask=0; want=""; want_name=""
 if [ "${STINGRAY_LANG:-}" = "1" ]; then
   want=$(lang_setting)
-  if [ -n "$want" ] && lang_wrong "$want" "$last"; then
-    if [ "$lang_blocks" = "1" ]; then
-      log wrong_language 1 true
-      block "stingray: this turn's final message is not in the configured language
-(settings \"language\": \"$want\"; the prose outside code is mostly not $want).
-
-Rewrite that final message in $want now. Keep the content as it was, and leave
-code blocks, commands, paths and identifiers exactly as they are."
-    fi
-    log wrong_language 1 false
+  if [ -n "$want" ]; then
+    units=$(prose_units "$last")
+    case "$units" in ''|*[!0-9]*) ;; *) [ "$units" -ge 12 ] && lang_ask=1 ;; esac
   fi
 fi
+[ "$lang_ask" = "1" ] && want_name=$(lang_name "$want")
 
 # ── Shape 3: computed locally. No model call, no API key required. ────────────
 # The declaration regex runs on the RAW message, before redaction and before
@@ -499,18 +475,27 @@ if [ "$shape3_on" = "1" ] && watch_claims "$last"; then
   fi
 fi
 
-# ── Shapes 1 and 2: judged by Jev ─────────────────────────────────────────────
-# Shape-3-only mode stops here: it skips the credential lookup and the request
+# ── Judged by Jev: shapes 1 and 2, and the language ───────────────────────────
+# Local mode stops here unless the language question is to be asked: with
+# STINGRAY_SHAPE3 alone this skips the credential lookup and the request
 # entirely. It does not skip the work above — stdin has been read and jq and
 # grep have run — so this is not a zero-cost path, only a zero-request one.
 # Without this exit a key sitting in ~/.config would send this turn's message
 # anyway, and the switch would mean the opposite of what it says.
-[ "$MODE" = "local" ] && exit 0
+#
+# STINGRAY_LANG is not a local check any more. With it on, this turn's redacted
+# final message is sent to ask one question — the same text shapes 1 and 2
+# send — and without a key the check does not run.
+[ "$MODE" = "local" ] && [ "$lang_ask" != "1" ] && exit 0
+# Shapes 1 and 2 are asked only in a Jev mode. With STINGRAY_LANG alone, the
+# request carries the language question and nothing else.
+jev_shapes=0
+{ [ "$MODE" = "active" ] || [ "$MODE" = "shadow" ]; } && jev_shapes=1
 
 KEY="${TYPESAFE_API_KEY:-${HOME:+$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}}"
 if [ -z "$KEY" ]; then
   marker="$STATE_DIR/nokey-$session"
-  [ -f "$marker" ] || { echo "(stingray: unavailable — no key; shapes 1/2 skipped)" >&2; : 2>/dev/null >"$marker"; }
+  [ -f "$marker" ] || { echo "(stingray: unavailable — no key; Jev checks skipped)" >&2; : 2>/dev/null >"$marker"; }
   exit 0
 fi
 [ -s "$QUESTIONS" ] || { echo "(stingray: unavailable — questions.json not found)" >&2; exit 0; }
@@ -554,7 +539,7 @@ redact_text() {
     s/```.*?```/ /gs;                      # fenced code blocks (paired)
     s/^\s*>.*$/ /mg;                       # block quotes
     s/`[^`\n]{1,200}`/ /g;                 # inline code
-    s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;   # URLs, in place; see lang_share
+    s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;   # URLs, in place; see prose_units
   ' | perl -ne '
     next if m{(?:/Users/|/private/|/home/|~/|[A-Za-z]:\\)[^\s"'"'"'`,)]+};  # absolute paths
     next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b};                      # relative paths
@@ -618,14 +603,24 @@ bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
 # watch_mismatch is asked only when the turn claimed to watch something AND
 # something is running: that is the one case counting cannot settle. Asking it
 # otherwise would spend a question on a state the arithmetic already decided.
+# wrong_language carries the final message and the language, and nothing else:
+# the tool list and background are no evidence about language. And the language
+# goes on that question only. Adding it to no_action or broken_promise would
+# change their input, and the 81.8% they were measured at would no longer be a
+# measurement of them.
 body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
-  --arg bg "$bg_text" --argjson wm "$watch_unresolved" --slurpfile q "$QUESTIONS" '
+  --arg bg "$bg_text" --argjson wm "$watch_unresolved" --argjson js "$jev_shapes" \
+  --argjson la "$lang_ask" --arg lang "$want_name" --slurpfile q "$QUESTIONS" '
   {model: $m,
    state: {source: "the end of one turn in a Claude Code transcript"},
    questions: ($q[0]
      | (if $wm == 1 then . else del(.watch_mismatch) end)
+     | (if $js == 1 then . else del(.no_action, .broken_promise, .watch_mismatch) end)
+     | (if $la == 1 then . else del(.wrong_language) end)
      | with_entries(
-        .value.instructions += {final_text: $ft, tools: $tl, background: $bg}))}
+        if .key == "wrong_language"
+        then .value.instructions += {final_text: $ft, language: $lang}
+        else .value.instructions += {final_text: $ft, tools: $tl, background: $bg} end))}
 ') || exit 0
 
 # Scan the exact bytes about to be transmitted, not one field of them. The body
@@ -666,6 +661,29 @@ meta=$(curl -sS -o "$out" -w '%{http_code} %{time_total}' --max-time "$TIMEOUT" 
     echo "(stingray: unavailable — network/timeout)" >&2; exit 0; }
 code=${meta%% *}; secs=${meta#* }
 [ "$code" = "200" ] || { echo "(stingray: unavailable — HTTP $code)" >&2; exit 0; }
+
+# The language first: one block per stop carries one instruction, and a reply
+# the user cannot read in their own language is the more basic failure of the
+# two. An answer that is absent or outside [0,1] leaves the language unjudged
+# rather than failing the rest of the response.
+wl=$(jq -r '.answers.wrong_language.noul
+  | select(type == "number" and . >= 0 and . <= 1)' "$out" 2>/dev/null)
+if [ "$lang_ask" = "1" ] && [ -n "${wl:-}" ]; then
+  if awk -v v="$wl" -v t="$TAU" 'BEGIN{exit !(v >= t)}'; then
+    if [ "$lang_blocks" = "1" ]; then
+      log wrong_language "$wl" true
+      block "stingray: this turn's final message is not in the configured language
+(settings \"language\": \"$want\"; judged not to be $want_name).
+
+Rewrite that final message in $want_name now. Keep the content as it was, and
+leave code blocks, commands, paths and identifiers exactly as they are."
+    fi
+    log wrong_language "$wl" false
+  else
+    log language_ok "$wl" false
+  fi
+fi
+[ "$jev_shapes" = "1" ] || exit 0
 
 # Both scores must be numbers in [0,1]. A character allowlist would admit "2"
 # or "1.2.3", and a score of 2 clears any threshold — malformed input must not

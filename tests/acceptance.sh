@@ -236,148 +236,73 @@ else
 fi
 
 # ── Language ──────────────────────────────────────────────────────────────────
-# A config directory of this suite's own, so the language comes from a file the
-# case controls and never from the machine running it.
-CFG_ZH="$TMP/cfg-zh"; CFG_EN="$TMP/cfg-en"; CFG_NONE="$TMP/cfg-none"
-mkdir -p "$CFG_ZH" "$CFG_EN" "$CFG_NONE"
+# Jev judges the language, so offline the only thing to test is whether it is
+# asked. The probe is a key with an unreachable endpoint: a turn that is asked
+# about prints the network marker, and a turn that is not leaves stderr empty.
+# The answer itself, and the request body, are tested in network.sh.
+CFG_ZH="$TMP/cfg-zh"; CFG_NONE="$TMP/cfg-none"; mkdir -p "$CFG_ZH" "$CFG_NONE"
 printf '{"language":"zh-TW"}\n' >"$CFG_ZH/settings.json"
-printf '{"language":"en"}\n' >"$CFG_EN/settings.json"
 printf '{}\n' >"$CFG_NONE/settings.json"
+ASKS=(TYPESAFE_API_KEY=would-be-used-if-reached STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable HOME="$TMP/nohome")
 ENGLISH='Done. I changed the timeout in the config and ran the whole suite, and every case passed on both runners, so the branch is ready for review whenever you are.'
 CHINESE='改好了。我把設定檔裡的 timeout 調整過，整套測試在 macOS 與 ubuntu 兩邊都通過，這個分支可以送審了。'
-
-# L01. The case this exists for: zh-TW configured, a paragraph of English back.
-check "L01 English reply, zh-TW configured → block" "$(mk "$ENGLISH" '[]' sess-L01)" 2 \
-  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L02. A zh-TW reply dense with English identifiers is still zh-TW.
-check "L02 zh-TW reply with identifiers → pass" "$(mk "$CHINESE" '[]' sess-L02)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L03. Only Chinese targets are checked; an English setting judges nothing.
-check "L03 English reply, en configured → pass" "$(mk "$ENGLISH" '[]' sess-L03)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_EN" "${OFFLINE[@]}"
-
-# L04. No language configured, nothing to compare against.
-check "L04 no language set → pass" "$(mk "$ENGLISH" '[]' sess-L04)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_NONE" "${OFFLINE[@]}"
-
-# L05. Shadow records, never blocks. The no-key marker is the expected stderr:
-#     shadow goes on to the Jev section, so reaching it proves the language
-#     check recorded and then let the turn continue instead of exiting early.
-check "L05 SHADOW + LANG → record only" "$(mk "$ENGLISH" '[]' sess-L05)" 0 "no key" \
-  STINGRAY_SHADOW=1 STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-if jq -e 'select(.session=="sess-L05" and .shape=="wrong_language" and .would_block=="false")' \
-     "$TMP/state/decisions.jsonl" >/dev/null 2>&1; then
-  pass=$((pass+1)); printf '  ok    L05.1 shadow wrote a wrong_language record\n'
-else
-  fail=$((fail+1)); printf '  FAIL  L05.1 no wrong_language record in decisions.jsonl\n'
-fi
-
-# L06. The project's settings.local.json outranks the user's file, as it does in
-#     Claude Code. Here the project says en and the user says zh-TW.
-PROJ="$TMP/proj"; mkdir -p "$PROJ/.claude"
-printf '{"language":"en"}\n' >"$PROJ/.claude/settings.local.json"
-check "L06 project setting outranks user setting → pass" \
-  "$(mk "$ENGLISH" '[]' sess-L06 | jq -c --arg c "$PROJ" '.cwd=$c')" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L07. LANG alone must never reach the Jev request path, key or no key — the same
-#     promise case 15 makes for SHAPE3 alone. A zh-TW reply passes the language
-#     check and would continue to the request if the local-mode exit were gone.
-check "L07 LANG alone + key → nothing sent" "$(mk "$CHINESE" '[]' sess-L07)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" TYPESAFE_API_KEY=would-be-used-if-reached \
-  STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable HOME="$TMP/nohome"
-
-# L09. An English reply that quotes a few Chinese terms in 「」 is still English.
-#     Perl's bare \p{Han} follows Script_Extensions and counts 「」 as Han. The
-#     sentence is built to sit on both sides of the threshold: 10 ideographs and
-#     20 English words is 33% and blocks, while the same text with its ten
-#     brackets counted as Han is 50% and passes. A first version of this case
-#     had more English in it and blocked either way, so it could not fail —
-#     checked against a mutant, which is how that was found.
-QUOTED='Mapped the terms: deficit is 「超前」, reserve is 「保留」, overrun is 「超支」, carry is 「結轉」, cap is 「上限」. I will apply them in the next slice.'
-check "L09 English quoting 「」 Chinese terms → block" "$(mk "$QUOTED" '[]' sess-L09)" 2 \
-  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L10–L11. Code is removed before scoring however it is fenced. Each reply is
-#     zh-TW prose around English code large enough to make the whole message
-#     score about 28% if the code were left in, against 92% with it removed. A rule that only pairs
-#     ``` leaves a ~~~ block in place, and splits a ```` block at the ``` inside
-#     it; against that rule both of these block.
 CODE='const retries = readConfig().network.retries ?? defaultRetries; for (const attempt of range(retries)) { const response = await fetch(endpoint, { method: "POST", body: payload, signal: controller.signal }); if (response.ok) return parse(response); await sleep(backoff(attempt)); } throw new Error("request failed after every retry");'
-TILDE="$(printf '%s\n~~~js\n%s\n%s\n~~~\n' "$CHINESE" "$CODE" "$CODE")"
-check "L10 zh-TW reply around a ~~~ block → pass" "$(mk "$TILDE" '[]' sess-L10)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-LONGFENCE="$(printf '%s\n````md\nBefore:\n```js\n%s\n```\nAfter:\n```js\n%s\n```\n````\n' "$CHINESE" "$CODE" "$CODE")"
-check "L11 zh-TW reply around a \`\`\`\` block → pass" "$(mk "$LONGFENCE" '[]' sess-L11)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
 
-# L12. A short English reply is still English. Fifteen words: above the floor of
-#     12, below the 20 the floor started at, where it was skipped.
-SHORT='Now route the other two call sites through the new helper before running the suite.'
-check "L12 short English reply → block" "$(mk "$SHORT" '[]' sess-L12)" 2 \
-  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+# L01. A reply with prose is asked about — any reply, not only a foreign one.
+#     That is what STINGRAY_LANG now costs: this turn's redacted final message
+#     leaves the machine for one question, as it does for shapes 1 and 2.
+check "L01 zh-TW reply with prose → asked" "$(mk "$CHINESE" '[]' sess-L01)" 0 "network/timeout" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
 
-# L13. A line that only looks like a fence opener does not swallow the reply.
-#     ```js``` has a backtick in its info string, so it opens nothing. An opener
-#     that accepted it ran to the next ``` line and removed the English between,
-#     and the paired /```.*?```/ fallback did the same across lines; the reply
-#     below scored 1 Han and 0 words and passed.
-FAKEFENCE="$(printf '%s\n%s\n```\n好。\n' '```js``` is how you would mark it, but I think the real problem here is that the retry loop never resets its counter after a success,' 'so every later failure is counted twice and the budget runs out early.')"
-check "L13 fake fence opener does not hide English → block" "$(mk "$FAKEFENCE" '[]' sess-L13)" 2 \
-  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+# L02. No language configured, nothing to ask about.
+check "L02 no language set → not asked" "$(mk "$ENGLISH" '[]' sess-L02)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_NONE" "${ASKS[@]}"
 
-# L14. Inline code is removed at any backtick length. This zh-TW reply quotes
-#     two commands in double backticks; with only single-backtick spans removed
-#     it scored 8 Han to 16 words and was blocked.
-DOUBLE='改好了，把 ``npm install --save-dev typescript eslint prettier vitest`` 跟 ``npm run build && npm run lint && npm test`` 都跑過。'
-check "L14 zh-TW reply with double-backtick code → pass" "$(mk "$DOUBLE" '[]' sess-L14)" 0 "-" \
+# L03. Without a key the check does not run, and says so once per session.
+check "L03 no key → not asked, marker shown" "$(mk "$ENGLISH" '[]' sess-L03)" 0 "no key" \
   STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
 
-# L15. A URL is removed without the Chinese written straight after it. With
-#     \S+ the link swallowed the rest of the sentence up to the next space, and
-#     what was left — 請看 and an English sentence — scored 12% and blocked. The
-#     English sentence is long enough that the remainder clears the floor of 12;
-#     a first version was shorter, fell under the floor either way, and could
-#     not fail.
-URLCN='請看 https://example.com/pr/10這一輪修掉了重試計數與退避時間的問題，兩個平台的測試都已經通過，可以合併了。The retry counter and backoff are fixed now, and both runners pass the full suite.'
-check "L15 URL followed by Chinese with no space → pass" "$(mk "$URLCN" '[]' sess-L15)" 0 "-" \
+# L04. A line of results has no prose to judge. Asked anyway, Jev scored this
+#     shape at 0.94 "not Chinese", which is true and useless.
+check "L04 results line without prose → not asked" \
+  "$(mk 'acceptance 49/0, network 10/0, mutants 4/0, fixture 44/0.' '[]' sess-L04)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
+
+# L05–L06. Code is not prose. A two-character reply around a large block of
+#     English code has nothing to judge, however the block is fenced; counting
+#     the code would clear the floor and send it.
+TILDE="$(printf '%s\n~~~js\n%s\n~~~\n' '好了。' "$CODE")"
+check "L05 short reply around a ~~~ block → not asked" "$(mk "$TILDE" '[]' sess-L05)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
+# The block has a blank line inside it, so only the fence rule can remove it:
+# the inline-code rule stops at a blank line, and without one it removed this
+# block by itself and the case could not tell whether the fence rule worked.
+LONGFENCE="$(printf '%s\n````md\n```js\n%s\n\n%s\n```\n````\n' '好了。' "$CODE" "$CODE")"
+check "L06 short reply around a \`\`\`\` block → not asked" "$(mk "$LONGFENCE" '[]' sess-L06)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
+
+# L07–L09. Every script counts toward the floor. The first version counted only
+#     Han and English words, so a Korean or Russian reply measured as nothing and
+#     would never have been asked about — the same blind spot the local rule had.
+check "L07 Korean reply → asked" \
+  "$(mk '설정을 변경하고 전체 테스트를 실행했습니다. 두 플랫폼 모두 통과했으니 리뷰를 요청해도 됩니다.' '[]' sess-L07)" 0 "network/timeout" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
+check "L08 Russian reply → asked" \
+  "$(mk 'Я изменил настройки и запустил все тесты, оба окружения прошли успешно, можно отправлять на ревью.' '[]' sess-L08)" 0 "network/timeout" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
+check "L09 Japanese reply → asked" \
+  "$(mk '設定を変更して全テストを実行しました。両方の環境で成功したので、レビューに出せます。' '[]' sess-L09)" 0 "network/timeout" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ASKS[@]}"
+
+# L10. LANG alone does not switch shape 3 on: a watch promise with nothing
+#     running is not blocked, and nothing is recorded for shape 3. The no-key
+#     marker is expected — the language question is wanted and has no key.
+check "L10 LANG alone leaves shape 3 off → pass" "$(mk "$WATCH_PLAIN" '[]' sess-L10)" 0 "no key" \
   STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L16. A decision record that cannot be written is a failure path, so the turn
-#     is not blocked. decisions.jsonl is made a directory, which makes the
-#     append fail while the block counter beside it stays writable — the case
-#     where the hook used to block anyway.
-LOGDIR="$TMP/state-nolog"; mkdir -p "$LOGDIR/decisions.jsonl"
-check "L16 unwritable decision log → pass" "$(mk "$ENGLISH" '[]' sess-L16)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" STINGRAY_STATE_DIR="$LOGDIR" "${OFFLINE[@]}"
-
-# L17. An inline code span may run across a line break. Its English is removed
-#     with it, so this zh-TW reply scores 100% and passes; with spans limited
-#     to one line the span stays in the sample and it scores 33% and blocks. A
-#     first version carried too little English to cross 40% either way, and a
-#     mutant showed it could not fail.
-MULTI="$(printf '%s\n%s\n' '改好了，指令如下，``npm run build && npm run lint && npm test -- --coverage --reporter verbose --maxWorkers four --runInBand' '--detectOpenHandles --forceExit --silent --bail --ci --watchAll false --testTimeout thirty --logHeapUsage --passWithNoTests --json --outputFile report``，兩個平台都跑過。')"
-check "L17 code span across a line break → pass" "$(mk "$MULTI" '[]' sess-L17)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L18. A code span does not cross a blank line. Two stray backticks, one each in
-#     the first and third paragraphs, must not pair and remove the English
-#     paragraph between them — letting spans cross every newline did exactly
-#     that, and this English reply then scored as Chinese and passed.
-STRAY="$(printf '%s\n\n%s\n\n%s\n' '看一下 ` 這裡。' 'The second paragraph is the actual reply, and it is ordinary English prose explaining the whole change in detail for the reviewer before the merge.' '還有 ` 這個。')"
-check "L18 stray backticks across paragraphs → block" "$(mk "$STRAY" '[]' sess-L18)" 2 \
-  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-
-# L08. LANG alone does not switch shape 3 on: a watch promise with nothing
-#     running passes, and nothing is recorded for it.
-check "L08 LANG alone leaves shape 3 off → pass" "$(mk "$WATCH_PLAIN" '[]' sess-L08)" 0 "-" \
-  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
-if jq -e 'select(.session=="sess-L08")' "$TMP/state/decisions.jsonl" >/dev/null 2>&1; then
-  fail=$((fail+1)); printf '  FAIL  L08.1 shape 3 recorded a decision with only LANG on\n'
+if jq -e 'select(.session=="sess-L10")' "$TMP/state/decisions.jsonl" >/dev/null 2>&1; then
+  fail=$((fail+1)); printf '  FAIL  L10.1 shape 3 recorded a decision with only LANG on\n'
 else
-  pass=$((pass+1)); printf '  ok    L08.1 nothing recorded for shape 3\n'
+  pass=$((pass+1)); printf '  ok    L10.1 nothing recorded for shape 3\n'
 fi
 
 echo
