@@ -190,11 +190,69 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
   return 1
 }
 
+# ── What counts as a reply in the wrong language ─────────────────────────────
+#
+# The configured language is the "language" key in Claude Code's settings, read
+# in the order Claude Code applies them: the project's settings.local.json, its
+# settings.json, then the user's settings.json under CLAUDE_CONFIG_DIR (so an
+# account kept in a separate config directory is read from its own file).
+#
+# Only Chinese targets are checked, because the test is a script test: prose that
+# should be Han and is not. Other languages return "not wrong" and nothing
+# happens. Simplified versus Traditional is not distinguished either.
+#
+# Code fences, inline code, URLs, block quotes and path-like tokens are removed
+# first — they are English in every language and say nothing about the prose.
+# What is left is counted as Han characters against Latin words of two letters or
+# more, and the reply is wrong when fewer than 40% of those are Han, provided
+# there are at least 20 of them together. The floor keeps a one-word
+# acknowledgement from being judged at all.
+#
+# "Han" is \p{sc=Han}, the strict Script property. Perl's bare \p{Han} follows
+# Script_Extensions since 5.26, and those include 「」、。 — measured on perl
+# 5.34, where it counted U+300C and U+300D as Han and scored an English reply
+# quoting three Chinese terms at 40% instead of 25%.
+#
+# Measured with these two functions, not a reimplementation, over 2,967 real
+# assistant messages from sessions configured for zh-TW, 2,628 of them above the
+# floor. Every zh-TW reply scored 63% or higher; nothing scored between 40% and
+# 59%; six scored under 40%. Three of the six are English replies ("Now the
+# tests — the old one asserted…", 0%; one quoting 「超前」「保留」「超支」, 25%).
+# The other three are the harness's own notice, below. 40% sits in the empty
+# band with room on both sides, but the wrong-language side of that band rests
+# on three examples.
+#
+# Not measured, and stated here rather than guessed at: whether the harness ever
+# passes its own English notices — "You've hit your monthly spend limit …", 21
+# words, 0% Han — to a Stop hook as last_assistant_message. Three are recorded in
+# the transcripts as assistant text. If one does reach the hook it is blocked
+# once, and the re-entry guard stops the second.
+lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
+  printf '%s' "$1" | perl -CSD -0777 -ne '
+    s/```.*?```/ /gs; s/`[^`\n]*`/ /g; s{https?://\S+|www\.\S+}{ }g;
+    s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
+    my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
+}
+lang_wrong() {  # lang_wrong <language> <text>; 0 = the prose is not in <language>
+  case "$1" in zh*|ZH*) ;; *) return 1 ;; esac
+  read -r lh lw <<EOF
+$(lang_share "$2")
+EOF
+  case "$lh$lw" in ''|*[!0-9]*) return 1 ;; esac
+  [ $((lh + lw)) -ge 20 ] || return 1
+  [ $((lh * 100)) -lt $((40 * (lh + lw))) ]
+}
+
 # Fixture entry point. Answers for one line and exits; reads no stdin, writes no
 # state, makes no request.
 if [ "${1:-}" = "--watch-test" ]; then
   watch_claims "${2:-}" && { echo watch; exit 0; }
   echo quiet; exit 0
+fi
+# Same contract for the language rule: --lang-test <language> <text>.
+if [ "${1:-}" = "--lang-test" ]; then
+  lang_wrong "${2:-}" "${3:-}" && { echo wrong; exit 0; }
+  echo ok; exit 0
 fi
 
 
@@ -208,8 +266,12 @@ fi
 # calibrated.
 #
 # STINGRAY_SHADOW wins over both: shadow means record, never block.
+#
+# STINGRAY_LANG is the second local check and shares the mode: with either local
+# switch alone, nothing leaves the machine. The mode was called "shape3" until
+# the language check joined it; decision records written before carry that name.
 MODE="off"
-[ "${STINGRAY_SHAPE3:-}" = "1" ] && MODE="shape3"
+{ [ "${STINGRAY_SHAPE3:-}" = "1" ] || [ "${STINGRAY_LANG:-}" = "1" ]; } && MODE="local"
 [ "${STINGRAY:-}" = "1" ] && MODE="active"
 [ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
 [ "$MODE" = "off" ] && exit 0
@@ -219,6 +281,13 @@ MODE="off"
 # behind it, which arithmetic settles.
 shape3_blocks=0
 [ "${STINGRAY_SHAPE3:-}" = "1" ] && [ "$MODE" != "shadow" ] && shape3_blocks=1
+# Shape 3 is evaluated — recorded, not necessarily blocking — with its own switch
+# or in either Jev mode, which is where its calibration records come from. With
+# only the language switch on it is not evaluated at all.
+shape3_on=0
+{ [ "${STINGRAY_SHAPE3:-}" = "1" ] || [ "$MODE" = "active" ] || [ "$MODE" = "shadow" ]; } && shape3_on=1
+lang_blocks=0
+[ "${STINGRAY_LANG:-}" = "1" ] && [ "$MODE" != "shadow" ] && lang_blocks=1
 
 # The correspondence judgement is a separate switch, off even when shape 3 is
 # blocking. It is a model answer with a borrowed threshold and no measurement
@@ -279,22 +348,49 @@ log() {   # log <shape> <score> <would_block>
 
 # The only exit that blocks. The reason goes to stderr because stdout does not
 # reach the model (measured, see header).
-nudge() {  # nudge <shape description>
+block() {  # block <message>; the one exit that blocks
   # If the budget cannot be recorded, do not block. An unrecorded block is an
   # unbounded one: on a re-entry where stop_hook_active is unavailable nothing
   # would count the rounds. Failing to write is a failure path like any other.
   printf '%s\n' "$((blocks + 1))" >"$count_file" 2>/dev/null || exit 0
-  cat >&2 <<EOF
-stingray: this turn looks like it stopped half-done ($1).
+  printf '%s\n' "$1" >&2
+  exit 2
+}
+nudge() {  # nudge <shape description>
+  block "stingray: this turn looks like it stopped half-done ($1).
 
 If the user's earlier instruction already authorised it, finish it now before
 ending the turn. If you are waiting on an external result (CI, a PR review),
 launch the polling command in the background before ending the turn. If you
 genuinely need a decision from the user, say which decision you are blocked on
-rather than simply stopping.
-EOF
-  exit 2
+rather than simply stopping."
 }
+
+# ── Language: computed locally. No model call, no API key required. ───────────
+# First, because a reply the user cannot read in their own language is the more
+# basic failure, and one block per stop can only carry one instruction.
+lang_setting() {
+  lcwd=$(j '.cwd')
+  for f in ${lcwd:+"$lcwd/.claude/settings.local.json" "$lcwd/.claude/settings.json"} \
+           "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"; do
+    v=$(jq -r '.language // empty' "$f" 2>/dev/null)
+    [ -n "$v" ] && { printf '%s' "$v"; return; }
+  done
+}
+if [ "${STINGRAY_LANG:-}" = "1" ]; then
+  want=$(lang_setting)
+  if [ -n "$want" ] && lang_wrong "$want" "$last"; then
+    if [ "$lang_blocks" = "1" ]; then
+      log wrong_language 1 true
+      block "stingray: this turn's final message is not in the configured language
+(settings \"language\": \"$want\"; the prose outside code is mostly not $want).
+
+Rewrite that final message in $want now. Keep the content as it was, and leave
+code blocks, commands, paths and identifiers exactly as they are."
+    fi
+    log wrong_language 1 false
+  fi
+fi
 
 # ── Shape 3: computed locally. No model call, no API key required. ────────────
 # The declaration regex runs on the RAW message, before redaction and before
@@ -317,7 +413,7 @@ EOF
 # 19,450 and would overstate it tenfold.
 watch_claimed=0
 watch_unresolved=0
-if watch_claims "$last"; then
+if [ "$shape3_on" = "1" ] && watch_claims "$last"; then
   watch_claimed=1
   # Require an actual array. Neither a missing key nor a null may be read as
   # "nothing is running": has() is true for null, and [ .[]? ] over null counts
@@ -359,7 +455,7 @@ fi
 # grep have run — so this is not a zero-cost path, only a zero-request one.
 # Without this exit a key sitting in ~/.config would send this turn's message
 # anyway, and the switch would mean the opposite of what it says.
-[ "$MODE" = "shape3" ] && exit 0
+[ "$MODE" = "local" ] && exit 0
 
 KEY="${TYPESAFE_API_KEY:-${HOME:+$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}}"
 if [ -z "$KEY" ]; then

@@ -234,6 +234,81 @@ else
   fail=$((fail+1)); printf '  FAIL  12 no shadow record in decisions.jsonl\n'
 fi
 
+# ── Language ──────────────────────────────────────────────────────────────────
+# A config directory of this suite's own, so the language comes from a file the
+# case controls and never from the machine running it.
+CFG_ZH="$TMP/cfg-zh"; CFG_EN="$TMP/cfg-en"; CFG_NONE="$TMP/cfg-none"
+mkdir -p "$CFG_ZH" "$CFG_EN" "$CFG_NONE"
+printf '{"language":"zh-TW"}\n' >"$CFG_ZH/settings.json"
+printf '{"language":"en"}\n' >"$CFG_EN/settings.json"
+printf '{}\n' >"$CFG_NONE/settings.json"
+ENGLISH='Done. I changed the timeout in the config and ran the whole suite, and every case passed on both runners, so the branch is ready for review whenever you are.'
+CHINESE='改好了。我把設定檔裡的 timeout 調整過，整套測試在 macOS 與 ubuntu 兩邊都通過，這個分支可以送審了。'
+
+# 17. The case this exists for: zh-TW configured, a paragraph of English back.
+check "17 English reply, zh-TW configured → block" "$(mk "$ENGLISH" '[]' sess-lang-17)" 2 \
+  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
+# 18. A zh-TW reply dense with English identifiers is still zh-TW.
+check "18 zh-TW reply with identifiers → pass" "$(mk "$CHINESE" '[]' sess-lang-18)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
+# 19. Only Chinese targets are checked; an English setting judges nothing.
+check "19 English reply, en configured → pass" "$(mk "$ENGLISH" '[]' sess-lang-19)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_EN" "${OFFLINE[@]}"
+
+# 20. No language configured, nothing to compare against.
+check "20 no language set → pass" "$(mk "$ENGLISH" '[]' sess-lang-20)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_NONE" "${OFFLINE[@]}"
+
+# 21. Shadow records, never blocks. The no-key marker is the expected stderr:
+#     shadow goes on to the Jev section, so reaching it proves the language
+#     check recorded and then let the turn continue instead of exiting early.
+check "21 SHADOW + LANG → record only" "$(mk "$ENGLISH" '[]' sess-lang-21)" 0 "no key" \
+  STINGRAY_SHADOW=1 STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+if jq -e 'select(.session=="sess-lang-21" and .shape=="wrong_language" and .would_block=="false")' \
+     "$TMP/state/decisions.jsonl" >/dev/null 2>&1; then
+  pass=$((pass+1)); printf '  ok    21.1 shadow wrote a wrong_language record\n'
+else
+  fail=$((fail+1)); printf '  FAIL  21.1 no wrong_language record in decisions.jsonl\n'
+fi
+
+# 22. The project's settings.local.json outranks the user's file, as it does in
+#     Claude Code. Here the project says en and the user says zh-TW.
+PROJ="$TMP/proj"; mkdir -p "$PROJ/.claude"
+printf '{"language":"en"}\n' >"$PROJ/.claude/settings.local.json"
+check "22 project setting outranks user setting → pass" \
+  "$(mk "$ENGLISH" '[]' sess-lang-22 | jq -c --arg c "$PROJ" '.cwd=$c')" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
+# 23. LANG alone must never reach the Jev request path, key or no key — the same
+#     promise case 15 makes for SHAPE3 alone. A zh-TW reply passes the language
+#     check and would continue to the request if the local-mode exit were gone.
+check "23 LANG alone + key → nothing sent" "$(mk "$CHINESE" '[]' sess-lang-23)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" TYPESAFE_API_KEY=would-be-used-if-reached \
+  STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable HOME="$TMP/nohome"
+
+# 25. An English reply that quotes a few Chinese terms in 「」 is still English.
+#     Perl's bare \p{Han} follows Script_Extensions and counts 「」 as Han. The
+#     sentence is built to sit on both sides of the threshold: 10 ideographs and
+#     20 English words is 33% and blocks, while the same text with its ten
+#     brackets counted as Han is 50% and passes. A first version of this case
+#     had more English in it and blocked either way, so it could not fail —
+#     checked against a mutant, which is how that was found.
+QUOTED='Mapped the terms: deficit is 「超前」, reserve is 「保留」, overrun is 「超支」, carry is 「結轉」, cap is 「上限」. I will apply them in the next slice.'
+check "25 English quoting 「」 Chinese terms → block" "$(mk "$QUOTED" '[]' sess-lang-25)" 2 \
+  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
+# 24. LANG alone does not switch shape 3 on: a watch promise with nothing
+#     running passes, and nothing is recorded for it.
+check "24 LANG alone leaves shape 3 off → pass" "$(mk "$WATCH_PLAIN" '[]' sess-lang-24)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+if jq -e 'select(.session=="sess-lang-24")' "$TMP/state/decisions.jsonl" >/dev/null 2>&1; then
+  fail=$((fail+1)); printf '  FAIL  24.1 shape 3 recorded a decision with only LANG on\n'
+else
+  pass=$((pass+1)); printf '  ok    24.1 nothing recorded for shape 3\n'
+fi
+
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]
