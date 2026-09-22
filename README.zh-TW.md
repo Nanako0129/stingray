@@ -91,15 +91,20 @@ claude plugin uninstall stingray
 
 > **驗證說明：** manifest 與上述指令皆已對本機原始碼實際驗證：marketplace 註冊成功、`plugin install` 回報成功、`plugin list` 顯示 `stingray@stingray` 在 user scope 啟用。在未設定開關的情況下，輸入本會觸發形狀 3 的資料，hook 回傳 exit 0 且未建立狀態目錄。`Nanako0129/stingray` 形式亦於合併後以相同方式驗證：自 GitHub 加入 marketplace、以 user scope 安裝，確認未設開關時依舊 exit 0 且不寫入狀態檔。
 
-**僅完成安裝不會執行任何動作。** 未設定開關前 hook 保持關閉：
+**僅完成安裝不會執行任何動作。** 未設定開關前 hook 保持關閉。開關請寫在 `~/.claude/settings.json` 的 `env` 區塊：
 
-```bash
-# 本機免費檢查：不需帳號、不需 key、不發送網路請求
-export STINGRAY_SHAPE3=1
-
-# 或：呼叫 Jev 評估、寫入決策紀錄、絕不攔下收尾。已取得 key 時建議由此開始。
-export STINGRAY_SHADOW=1
+```json
+{
+  "env": {
+    "STINGRAY_SHAPE3": "1",
+    "STINGRAY_LANG": "1"
+  }
+}
 ```
+
+`STINGRAY_SHAPE3` 是免費的本機監看檢查，`STINGRAY_LANG` 是語言檢查，兩者都不需帳號、不需 key、不連網。已取得 API key 的話，改從 `"STINGRAY_SHADOW": "1"` 開始：呼叫 Jev、寫入決策紀錄，但絕不攔下收尾。改完檔案後重新啟動 Claude Code。
+
+> **為什麼不在 shell 裡 `export`：** Claude Code 啟動時會自己讀 `settings.json`，所以不管用什麼方式啟動，每個 session 都拿得到開關。shell 的 `export` 只對「那一行加進去之後才開的 shell」所啟動的 session 有效；之前就開著的終端機分頁、桌面版、IDE 擴充都讀不到，hook 就會什麼都不做、也不告訴你。這是實際踩過的：一個開了八天的分頁，啟動的 session 一個開關都沒有。
 
 確認 plugin 已載入且未主動攔截：
 
@@ -174,7 +179,7 @@ command -v jq || sudo apt install jq  # Debian/Ubuntu
 | `STINGRAY_LANG=1` | 針對形狀 4 攔下收尾：最後一則訊息不是設定的 `language`。不需 key 亦不需連網。優先序低於 `STINGRAY_SHADOW=1`，後者只記錄不攔。 |
 | `STINGRAY_SHAPE3_JUDGE=1` | 允許形狀 3 的**對應判斷**攔下收尾（背景工作數大於 0，但模型判定與承諾不符）。預設關閉；需同時設定 `STINGRAY_SHAPE3=1` 與 `STINGRAY=1`。只設形狀 3 時，hook 會在進入請求路徑前就退出，這道判斷在那個模式下永遠不會執行。不論開關為何，皆會記錄判斷。 |
 
-成本最低且具實用價值的設定是單獨匯出 `STINGRAY_SHAPE3=1`：不需註冊帳號、不需 key、不發送請求，僅清點宣告盯著外部進度時背景是否有相應程序在跑。此模式仍需解析 payload 並執行正規表達式比對，並非零運算負擔，但免除了網路依賴。
+成本最低且具實用價值的設定是單獨設定 `STINGRAY_SHAPE3=1`：不需註冊帳號、不需 key、不發送請求，僅清點宣告盯著外部進度時背景是否有相應程序在跑。此模式仍需解析 payload 並執行正規表達式比對，並非零運算負擔，但免除了網路依賴。
 
 其餘參數設定：`STINGRAY_TAU`（0.5）、`STINGRAY_TIMEOUT`（6 秒）、`STINGRAY_MAX_BLOCKS`（每 session 上限 3 次）、`STINGRAY_STATE_DIR`（`~/.local/state/stingray`）、`STINGRAY_REDACT_WORDS`（額外指定遮蔽字串），以及 `STINGRAY_JEV_MODEL`（`jev-1.13.0`，釘死版本以避免分類器無預警變更）。
 
