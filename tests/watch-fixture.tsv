@@ -8,7 +8,9 @@
 # lost becomes a list of strings someone later edits to make the tests pass.
 #   live-fp    an observed false positive: this exact text blocked a real turn
 #   live-tp    a real promise from a real session
-#   control    written for this fixture, labelled by hand
+#   control    written for this fixture, labelled by hand. The two measure-word
+#              lines ("三個監看", "每支輪詢") fail if 支段個 are refused outright
+#              instead of only after 那 or 這.
 #   short      a real promise too short to carry a target keyword; see NOTE below
 #              (recovered by the aspect branch, so expected `watch`)
 #   nom-cost   a genuine watch written as a possessive noun phrase ("CI 的監看還
@@ -80,3 +82,5 @@ quiet	inline-fp	兩句都 quiet：review 用的輪詢腳本我修好了、build 
 watch	clause-tp	那支輪詢器剛修好，我會盯著 CI 的結果
 watch	clause-tp	這個 PR 的輪詢邏輯有 bug，我現在盯著 CI
 watch	clause-tp	剛開好的監看會盯著 CI 的結果
+watch	control	我開了三個監看盯 CI
+watch	control	每支輪詢都會盯 PR

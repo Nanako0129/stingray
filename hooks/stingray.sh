@@ -165,11 +165,19 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # of these shapes behave in general.
 WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
 WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
-# Not a possessive or a demonstrative. Spelled as a character class so the
-# refusal is part of the match, never a second pattern applied afterwards.
-WATCH_NOPOSS='[^。的支段個]'
-WATCH_FWD="(^|${WATCH_NOPOSS})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
-WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_NOPOSS}(${WATCH_VERB})"
+# Not a possessive or a demonstrative, as the one or two characters right before
+# the verb. Spelled into the match so the refusal can never be applied to some
+# other hit afterwards.
+#
+# 支, 段 and 個 count only after 那 or 這. As first written the class refused all
+# three outright, which also refused them as measure words: "我開了三個監看盯 CI"
+# and "每支輪詢都會盯 PR" came out quiet. Measured on the corpus, the bare form
+# guarded against 0 demonstratives (那／這 + 支段個 + verb never occurs) while it
+# could refuse 5 lines, 2 of them genuine claims. Found by the session reviewing
+# the previous release.
+WATCH_PRE='([^。的支段個]|[^那這。][支段個])'
+WATCH_FWD="(^|${WATCH_PRE})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
+WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_PRE}(${WATCH_VERB})"
 WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
 
 # The one place that decides. tests/watch-fixture.sh drives this through
