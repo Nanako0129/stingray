@@ -203,32 +203,47 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
 #
 # Code fences, inline code, URLs, block quotes and path-like tokens are removed
 # first — they are English in every language and say nothing about the prose.
+# Fences are removed the way CommonMark closes them: three or more backticks or
+# tildes, closed by a line of the same character at least as long, or by the end
+# of the message. A regex for paired ``` alone left a ~~~ block, or a ```` block
+# holding ```, in the prose sample, where its English could block a zh-TW reply.
+# Neither form occurs in the corpus below; the false-block direction is why it
+# is handled anyway.
+#
 # What is left is counted as Han characters against Latin words of two letters or
 # more, and the reply is wrong when fewer than 40% of those are Han, provided
-# there are at least 20 of them together. The floor keeps a one-word
-# acknowledgement from being judged at all.
-#
-# "Han" is \p{sc=Han}, the strict Script property. Perl's bare \p{Han} follows
-# Script_Extensions since 5.26, and those include 「」、。 — measured on perl
-# 5.34, where it counted U+300C and U+300D as Han and scored an English reply
-# quoting three Chinese terms at 40% instead of 25%.
+# there are at least 12 of them together. The floor keeps "OK", "LGTM" and a
+# terse status line from being judged at all.
 #
 # Measured with these two functions, not a reimplementation, over 2,967 real
-# assistant messages from sessions configured for zh-TW, 2,628 of them above the
-# floor. Every zh-TW reply scored 63% or higher; nothing scored between 40% and
-# 59%; six scored under 40%. Three of the six are English replies ("Now the
-# tests — the old one asserted…", 0%; one quoting 「超前」「保留」「超支」, 25%).
-# The other three are the harness's own notice, below. 40% sits in the empty
-# band with room on both sides, but the wrong-language side of that band rests
-# on three examples.
+# assistant messages from sessions configured for zh-TW. The floor was chosen by
+# what each value catches against how close it lets a zh-TW reply come:
 #
-# Not measured, and stated here rather than guessed at: whether the harness ever
-# passes its own English notices — "You've hit your monthly spend limit …", 21
-# words, 0% Han — to a Stop hook as last_assistant_message. Three are recorded in
-# the transcripts as assistant text. If one does reach the hook it is blocked
-# once, and the re-entry guard stops the second.
+#   floor   English model replies caught   lowest zh-TW score   margin
+#     20                  3                       63%              23
+#     12                  7                       60%              20
+#      8                 13                       45%               5
+#
+# 20 was the first value; a review pointed at the short English replies it
+# skipped ("Now build and test on the Windows machine:"). 8 catches all 13 of
+# them but lets terse zh-TW status lines — "#92 全綠、Codex CLEAN。merge 後推
+# tag。", 50% — sit five points from the line, and a false block is the
+# direction this hook exists not to take. At 12, 2,834 messages are judged, no
+# zh-TW reply scores under 60%, and the ones under 40% are all English: the 7
+# model replies (one quoting 「超前」「保留」「超支」, at 25%) and 6 notices
+# written by the harness itself. The English side of the line rests on those 7.
+#
+# The harness notices — "You've hit your session limit …", "API Error:
+# Connection lost mid-response …" — are recorded in transcripts as assistant
+# text. The hooks reference says a turn that ends on an API error fires
+# StopFailure, with error types including rate_limit and billing_error, which
+# would keep them away from a Stop hook. That is documented, not measured, and
+# the same reference has been wrong about Stop before. If one does arrive it is
+# blocked once and the re-entry guard stops a second.
 lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
   printf '%s' "$1" | perl -CSD -0777 -ne '
+    s/^[ \t]*(`{3,})[^\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
+    s/^[ \t]*(~{3,})[^\n]*\n.*?(?:^[ \t]*\1~*[ \t]*$|\z)/ /gms;
     s/```.*?```/ /gs; s/`[^`\n]*`/ /g; s{https?://\S+|www\.\S+}{ }g;
     s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
     my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
@@ -239,7 +254,7 @@ lang_wrong() {  # lang_wrong <language> <text>; 0 = the prose is not in <languag
 $(lang_share "$2")
 EOF
   case "$lh$lw" in ''|*[!0-9]*) return 1 ;; esac
-  [ $((lh + lw)) -ge 20 ] || return 1
+  [ $((lh + lw)) -ge 12 ] || return 1
   [ $((lh * 100)) -lt $((40 * (lh + lw))) ]
 }
 
@@ -369,7 +384,7 @@ rather than simply stopping."
 # ── Language: computed locally. No model call, no API key required. ───────────
 # First, because a reply the user cannot read in their own language is the more
 # basic failure, and one block per stop can only carry one instruction.
-lang_setting() {
+lang_setting() {  # lang_setting; prints the configured language, or nothing
   lcwd=$(j '.cwd')
   for f in ${lcwd:+"$lcwd/.claude/settings.local.json" "$lcwd/.claude/settings.json"} \
            "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"; do

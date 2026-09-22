@@ -299,6 +299,25 @@ QUOTED='Mapped the terms: deficit is 「超前」, reserve is 「保留」, over
 check "25 English quoting 「」 Chinese terms → block" "$(mk "$QUOTED" '[]' sess-lang-25)" 2 \
   "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
 
+# 26–27. Code is removed before scoring however it is fenced. Each reply is
+#     zh-TW prose around English code large enough to make the whole message
+#     score about 28% if the code were left in, against 92% with it removed. A rule that only pairs
+#     ``` leaves a ~~~ block in place, and splits a ```` block at the ``` inside
+#     it; against that rule both of these block.
+CODE='const retries = readConfig().network.retries ?? defaultRetries; for (const attempt of range(retries)) { const response = await fetch(endpoint, { method: "POST", body: payload, signal: controller.signal }); if (response.ok) return parse(response); await sleep(backoff(attempt)); } throw new Error("request failed after every retry");'
+TILDE="$(printf '%s\n~~~js\n%s\n%s\n~~~\n' "$CHINESE" "$CODE" "$CODE")"
+check "26 zh-TW reply around a ~~~ block → pass" "$(mk "$TILDE" '[]' sess-lang-26)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+LONGFENCE="$(printf '%s\n````md\nBefore:\n```js\n%s\n```\nAfter:\n```js\n%s\n```\n````\n' "$CHINESE" "$CODE" "$CODE")"
+check "27 zh-TW reply around a \`\`\`\` block → pass" "$(mk "$LONGFENCE" '[]' sess-lang-27)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
+# 28. A short English reply is still English. Fifteen words: above the floor of
+#     12, below the 20 the floor started at, where it was skipped.
+SHORT='Now route the other two call sites through the new helper before running the suite.'
+check "28 short English reply → block" "$(mk "$SHORT" '[]' sess-lang-28)" 2 \
+  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
 # 24. LANG alone does not switch shape 3 on: a watch promise with nothing
 #     running passes, and nothing is recorded for it.
 check "24 LANG alone leaves shape 3 off → pass" "$(mk "$WATCH_PLAIN" '[]' sess-lang-24)" 0 "-" \
