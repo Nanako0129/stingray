@@ -212,13 +212,15 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
 # one; the false-block direction is why they are handled anyway.
 #
 # Inline code is removed at any backtick length — a run closed by a run of the
-# same length, as CommonMark closes it — and across line breaks inside one
-# paragraph, but never across a blank line, since a code span cannot cross a
-# paragraph. Letting it cross every newline was proposed and measured: a stray
-# backtick in the first paragraph paired with one in the third and removed the
-# English second paragraph whole, 39 Han and 17 words becoming 18 and 0. Only single backticks were removed
-# before, so a zh-TW reply quoting commands in double backticks kept their
+# same length, as CommonMark closes it. Only single backticks were removed at
+# first, so a zh-TW reply quoting commands in double backticks kept their
 # English and was blocked: measured, 8 Han to 16 words.
+#
+# A span may cross a line break inside a paragraph but never a blank line,
+# because a CommonMark code span cannot cross a paragraph. Letting it cross
+# every newline was proposed and measured: a stray backtick in the first
+# paragraph paired with one in the third and removed the English second
+# paragraph whole, 39 Han and 17 words becoming 18 and 0.
 #
 # A URL is removed as printable ASCII only. \S+ ran on through Chinese written
 # straight after it with no space between, as Chinese is: a reply citing a PR
