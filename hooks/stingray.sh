@@ -266,10 +266,16 @@ log() {   # log <shape> <score> <would_block>
   printf '%s\n' "$(jq -cn \
     --arg ts "$(date -u +%FT%TZ)" --arg s "$session" --arg m "$MODE" \
     --arg shape "$1" --arg score "$2" --arg wb "$3" --arg model "$MODEL" \
-    --arg qh "${qset_hash:-}" --arg secs "${secs:-}" \
-    '{ts:$ts,session:$s,mode:$m,shape:$shape,score:$score,would_block:$wb,
-      model:$model,qset_hash:$qh,secs:$secs}')" >>"$STATE_DIR/decisions.jsonl" 2>/dev/null
+    --arg qh "${qset_hash:-}" --arg secs "${secs:-}" --arg pid "$(j '.prompt_id')" \
+    '{ts:$ts,session:$s,prompt_id:$pid,mode:$m,shape:$shape,score:$score,
+      would_block:$wb,model:$model,qset_hash:$qh,secs:$secs}')" >>"$STATE_DIR/decisions.jsonl" 2>/dev/null
 }
+# prompt_id is recorded so that the block budget can later be keyed on it. The
+# budget counts every block in a session and never resets, so after MAX_BLOCKS
+# successful nudges the hook stops working for the rest of that session. What
+# it should bound is a run of blocks at one stop point. Whether a re-entry after
+# a block carries the same prompt_id as the turn it re-enters is the fact that
+# decides how, and it is not yet measured; these records are how it will be.
 
 # The only exit that blocks. The reason goes to stderr because stdout does not
 # reach the model (measured, see header).
