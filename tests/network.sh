@@ -215,6 +215,20 @@ b6_rec=$(jq -r 'select(.shape == "unwatched") | .would_block' "$TMP/s6b/decision
   && say ok "B6 judgement without its own switch → recorded, not blocked" \
   || say no "B6 judgement without its switch → exit $rc, would_block=${b6_rec:-none}"
 
+# ── B7. An absent background_tasks is not an empty one. The context sent to Jev
+#        described it as "nothing running or scheduled", turning unknown state
+#        into confirmed inactivity. Read the body that actually left the hook.
+rm -f "$TMP/captured-record"
+start_stub record
+( export STINGRAY_STATE_DIR="$TMP/s7b" STINGRAY_SHADOW=1 TYPESAFE_API_KEY=dummy \
+         STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+  mk "$SYNTHETIC" | jq -c 'del(.background_tasks)' | bash "$HOOK" >/dev/null 2>"$TMP/b7.err" )
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+b7_bg=$(jq -r '[.questions[].instructions.background] | unique | join("|")' "$TMP/captured-record" 2>/dev/null | head -1)
+[ "$b7_bg" = "background list unavailable" ] \
+  && say ok "B7 absent background_tasks → sent as unavailable, not as empty" \
+  || say no "B7 absent background_tasks → background sent as: ${b7_bg:-<no request captured>}"
+
 if [ "${1:-}" != "--live" ]; then
   echo; printf 'passed %d, failed %d  (live cases skipped; pass --live)\n' "$pass" "$fail"
   [ "$fail" = 0 ]; exit

@@ -23,7 +23,8 @@
 #
 # Friction only ever goes up. Every failure path exits 0, leaving behaviour
 # identical to not having this plugin installed; the only exit that blocks is
-# nudge(). stingray must never make the model do less.
+# block(), which nudge() and the language check both call. stingray must never
+# make the model do less.
 #
 # The list of those paths lives in the README and is deliberately not repeated
 # here: it was repeated once, went stale in this copy while the README stayed
@@ -210,6 +211,17 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
 # Across the 2,967 messages below, 0 lines open a ~~~ fence and 0 open a ````
 # one; the false-block direction is why they are handled anyway.
 #
+# Inline code is removed at any backtick length — a run closed by a run of the
+# same length, as CommonMark closes it. Only single backticks were removed
+# before, so a zh-TW reply quoting commands in double backticks kept their
+# English and was blocked: measured, 8 Han to 16 words.
+#
+# A URL is removed as printable ASCII only. \S+ ran on through Chinese written
+# straight after it with no space between, as Chinese is: a reply citing a PR
+# link lost the rest of its sentence and kept 6 of its Han characters. The same
+# rule was in redact_text and is fixed there too, where it had been removing
+# prose from what is sent to Jev while claiming to replace URLs in place.
+#
 # A backtick opener's info string may not contain a backtick, as in CommonMark.
 # Without that, a first line reading ```js``` opened a "fence" that ran to the
 # next ``` line and removed the English prose in between: a whole English reply
@@ -251,7 +263,8 @@ lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
   printf '%s' "$1" | perl -CSD -0777 -ne '
     s/^[ \t]*(`{3,})[^`\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
     s/^[ \t]*(~{3,})[^\n]*\n.*?(?:^[ \t]*\1~*[ \t]*$|\z)/ /gms;
-    s/`[^`\n]*`/ /g; s{https?://\S+|www\.\S+}{ }g;
+    s/(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/ /g;
+    s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;
     s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
     my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
 }
@@ -359,8 +372,17 @@ log() {   # log <shape> <score> <would_block>
     --arg shape "$1" --arg score "$2" --arg wb "$3" --arg model "$MODEL" \
     --arg qh "${qset_hash:-}" --arg secs "${secs:-}" --arg pid "$(j '.prompt_id')" \
     '{ts:$ts,session:$s,prompt_id:$pid,mode:$m,shape:$shape,score:$score,
-      would_block:$wb,model:$model,qset_hash:$qh,secs:$secs}')" >>"$STATE_DIR/decisions.jsonl" 2>/dev/null
+      would_block:$wb,model:$model,qset_hash:$qh,secs:$secs}')" 2>/dev/null >>"$STATE_DIR/decisions.jsonl" \
+    || exit 0
 }
+# A record that cannot be written is a failure path like any other, and every
+# failure path exits 0. 2>/dev/null comes before the redirection on purpose:
+# bash applies redirections left to right, so with it after, a failed >> prints
+# "Is a directory" to stderr before the silencing takes effect, and that line
+# reaches the user as hook output. Measured on bash 3.2.57 — the /bin/bash that
+# hooks.json runs on macOS — and on 5.3. Without this, an unwritable decisions.jsonl beside a
+# writable block counter still reached block(): the hook blocked while the one
+# log that calibration depends on silently lost the decision.
 # prompt_id is recorded so that the block budget can later be keyed on it. The
 # budget counts every block in a session and never resets, so after MAX_BLOCKS
 # successful nudges the hook stops working for the rest of that session. What
@@ -374,7 +396,7 @@ block() {  # block <message>; the one exit that blocks
   # If the budget cannot be recorded, do not block. An unrecorded block is an
   # unbounded one: on a re-entry where stop_hook_active is unavailable nothing
   # would count the rounds. Failing to write is a failure path like any other.
-  printf '%s\n' "$((blocks + 1))" >"$count_file" 2>/dev/null || exit 0
+  printf '%s\n' "$((blocks + 1))" 2>/dev/null >"$count_file" || exit 0
   printf '%s\n' "$1" >&2
   exit 2
 }
@@ -482,7 +504,7 @@ fi
 KEY="${TYPESAFE_API_KEY:-${HOME:+$(cat "$HOME/.config/typesafe/api_key" 2>/dev/null)}}"
 if [ -z "$KEY" ]; then
   marker="$STATE_DIR/nokey-$session"
-  [ -f "$marker" ] || { echo "(stingray: unavailable — no key; shapes 1/2 skipped)" >&2; : >"$marker"; }
+  [ -f "$marker" ] || { echo "(stingray: unavailable — no key; shapes 1/2 skipped)" >&2; : 2>/dev/null >"$marker"; }
   exit 0
 fi
 [ -s "$QUESTIONS" ] || { echo "(stingray: unavailable — questions.json not found)" >&2; exit 0; }
@@ -526,7 +548,7 @@ redact_text() {
     s/```.*?```/ /gs;                      # fenced code blocks (paired)
     s/^\s*>.*$/ /mg;                       # block quotes
     s/`[^`\n]{1,200}`/ /g;                 # inline code
-    s{https?://\S+|www\.\S+}{ }g;          # URLs (replaced in place, line survives)
+    s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;   # URLs, in place; see lang_share
   ' | perl -ne '
     next if m{(?:/Users/|/private/|/home/|~/|[A-Za-z]:\\)[^\s"'"'"'`,)]+};  # absolute paths
     next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b};                      # relative paths
@@ -570,10 +592,15 @@ fi
 # prompts are written by the model and carry project names and work detail, so
 # they go through the same redaction as the message. Command lines are still
 # never sent.
+# An absent or non-array background_tasks produces no output here, so the line
+# below reports the list as unavailable. It used to iterate with []? and report
+# "nothing running or scheduled" — unknown state sent to Jev as confirmed
+# inactivity, the same mistake shape 3 guards against with its own type check.
 bg_text=$(printf '%s' "$input" | jq -r '
-  [ (.background_tasks[]? | "\(.status): \(.description // "(no description)")"),
+  if (.background_tasks | type) != "array" then empty else
+  [ (.background_tasks[] | "\(.status): \(.description // "(no description)")"),
     ((.session_crons // [])[]? | "scheduled: \(.prompt // "(no prompt)")") ]
-  | if length == 0 then "nothing running or scheduled" else join(" | ") end' 2>/dev/null)
+  | if length == 0 then "nothing running or scheduled" else join(" | ") end end' 2>/dev/null)
 [ -n "$bg_text" ] || bg_text="background list unavailable"
 bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
 [ -n "${bg_text// /}" ] || bg_text="background list unavailable"

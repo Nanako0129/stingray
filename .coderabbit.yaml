@@ -54,7 +54,7 @@ reviews:
       instructions: |
         The invariant (README, "Friction only ever goes up"): every failure
         path must exit 0, leaving behaviour identical to the plugin not being
-        installed. The only exit that blocks is nudge(). Flag any new early
+        installed. The only exit that blocks is block(). Flag any new early
         return, guard or error branch that can reach exit 2, and any change
         that makes a failure suppress work the model would otherwise do.
 
