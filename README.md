@@ -89,17 +89,22 @@ claude plugin uninstall stingray
 
 > **Tip:** The in-session `/plugin install` dialog asks you to pick a scope — choose **User** there.
 
-> **Verification details:** The manifest and installation commands were tested against a local checkout: the marketplace registered, `plugin install` reported success, and `plugin list` showed `stingray@stingray` enabled at user scope. With no switches exported, a payload that would otherwise trigger shape 3 exited 0 and created no state directory. The `Nanako0129/stingray` syntax was verified the same way after merging: added from GitHub, installed at user scope, and confirmed to exit 0 without writing state files.
+> **Verification details:** The manifest and installation commands were tested against a local checkout: the marketplace registered, `plugin install` reported success, and `plugin list` showed `stingray@stingray` enabled at user scope. With no switches set, a payload that would otherwise trigger shape 3 exited 0 and created no state directory. The `Nanako0129/stingray` syntax was verified the same way after merging: added from GitHub, installed at user scope, and confirmed to exit 0 without writing state files.
 
-**Installation alone performs no actions.** The hook remains inactive until a switch is exported:
+**Installation alone performs no actions.** The hook remains inactive until a switch is set. Set switches in the `env` block of `~/.claude/settings.json`:
 
-```bash
-# free local check: no account, no key, no network requests
-export STINGRAY_SHAPE3=1
-
-# or: call Jev, log decision records, never block turn completion. Start here with an API key.
-export STINGRAY_SHADOW=1
+```json
+{
+  "env": {
+    "STINGRAY_SHAPE3": "1",
+    "STINGRAY_LANG": "1"
+  }
+}
 ```
+
+`STINGRAY_SHAPE3` is the free local watch check and `STINGRAY_LANG` the language check; neither needs an account, a key or the network. With an API key, start from `"STINGRAY_SHADOW": "1"` instead, which calls Jev and logs decision records but never blocks turn completion. Restart Claude Code after changing the file.
+
+> **Why not `export` in your shell:** Claude Code reads `settings.json` itself when it starts, so every session gets the switches however it was launched. A shell `export` reaches only sessions started from a shell opened after the line was added. A terminal tab left open from before, the desktop app and IDE extensions all miss it, and the hook then does nothing without saying so. This was hit in practice: a tab open for eight days kept launching sessions with none of the switches set.
 
 Verify that the plugin is loaded:
 
