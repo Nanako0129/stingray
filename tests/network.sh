@@ -230,6 +230,94 @@ b7_bg=$(jq -r '[.questions[].instructions.background] | unique | join("|")' "$TM
   && say ok "B7 absent background_tasks → sent as unavailable, not as empty" \
   || say no "B7 absent background_tasks → background sent as: ${b7_bg:-<no request captured>}"
 
+# ── L. The language, judged by Jev. Each case reads what the stub received, not
+#       only the exit code: which questions went out, and what they carried.
+mkl() {  # mkl <message> <session> [cwd]
+  jq -cn --arg msg "$1" --arg sid "$2" --arg cwd "${3:-/tmp}" '{
+    session_id: $sid, prompt_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    transcript_path: "/nonexistent/t.jsonl", cwd: $cwd, permission_mode: "default",
+    hook_event_name: "Stop", stop_hook_active: false,
+    last_assistant_message: $msg, background_tasks: [], session_crons: []
+  }'
+}
+LCFG="$TMP/lcfg"; mkdir -p "$LCFG"; printf '{"language":"zh-TW"}\n' >"$LCFG/settings.json"
+LEN='Done. I changed the timeout in the config and ran the whole suite, and every case passed on both runners, so the branch is ready for review.'
+LZH='改好了。我把設定檔裡的 timeout 調整過，整套測試在 macOS 與 ubuntu 兩邊都通過，這個分支可以送審了。'
+run_lang() {  # run_lang <state dir> <stdin> <env...>; stderr to <state dir>.err
+  local st="$1" in="$2"; shift 2
+  ( export STINGRAY_STATE_DIR="$st" CLAUDE_CONFIG_DIR="$LCFG" TYPESAFE_API_KEY=dummy \
+           STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+    for kv in "$@"; do export "${kv?}"; done
+    printf '%s' "$in" | "$HOOK_SH" "$HOOK" >/dev/null 2>"$st.err" )
+}
+
+# L1. Judged not to be the configured language → blocked, naming the language.
+start_stub wronglang
+run_lang "$TMP/l1" "$(mkl "$LEN" net-l1)" STINGRAY_LANG=1; rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+{ [ "$rc" = 2 ] && grep -q "not in the configured language" "$TMP/l1.err" && grep -q "繁體中文（台灣，zh-TW）" "$TMP/l1.err"; } \
+  && say ok "L1 judged wrong language → blocked, naming 繁體中文（台灣，zh-TW）" \
+  || say no "L1 judged wrong language → exit $rc; stderr: $(head -c 160 "$TMP/l1.err")"
+
+# L2. LANG alone asks the language question and nothing else, and that question
+#     carries the message and the language name only — no tool list, no
+#     background.
+rm -f "$TMP/captured-record"; start_stub record
+run_lang "$TMP/l2" "$(mkl "$LZH" net-l2)" STINGRAY_LANG=1; rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+l2=$(jq -c '{q: (.questions | keys), i: (.questions.wrong_language.instructions | keys), l: .questions.wrong_language.instructions.language}' "$TMP/captured-record" 2>/dev/null | head -1)
+[ "$rc" = 0 ] && [ "$l2" = '{"q":["wrong_language"],"i":["final_text","language","question"],"l":"繁體中文（台灣，zh-TW）"}' ] \
+  && say ok "L2 LANG alone → one question, carrying final_text and the language name only" \
+  || say no "L2 LANG alone → exit $rc, sent: ${l2:-<no request captured>}"
+
+# L3. With shapes 1 and 2 on as well, all three go in one request — and the
+#     language stays on its own question. On no_action it would change the input
+#     the 81.8% was measured on.
+rm -f "$TMP/captured-record"; start_stub record
+run_lang "$TMP/l3" "$(mkl "$LZH" net-l3)" STINGRAY=1 STINGRAY_LANG=1; rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+l3=$(jq -c '{q: (.questions | keys), na: (.questions.no_action.instructions | has("language"))}' "$TMP/captured-record" 2>/dev/null | head -1)
+[ "$l3" = '{"q":["broken_promise","no_action","wrong_language"],"na":false}' ] \
+  && say ok "L3 STINGRAY + LANG → one request, language only on wrong_language" \
+  || say no "L3 STINGRAY + LANG → sent: ${l3:-<no request captured>}"
+
+# L4. The project's settings.local.json outranks the user file, and a code the
+#     hook knows is sent as a name.
+LPROJ="$TMP/lproj"; mkdir -p "$LPROJ/.claude"; printf '{"language":"en"}\n' >"$LPROJ/.claude/settings.local.json"
+rm -f "$TMP/captured-record"; start_stub record
+run_lang "$TMP/l4" "$(mkl "$LZH" net-l4 "$LPROJ")" STINGRAY_LANG=1
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+l4=$(jq -r '.questions.wrong_language.instructions.language' "$TMP/captured-record" 2>/dev/null | head -1)
+[ "$l4" = "英文（en）" ] \
+  && say ok "L4 project setting outranks the user's, sent as 英文（en）" \
+  || say no "L4 project setting → language sent: ${l4:-<no request captured>}"
+
+# L5. Shadow records the judgement and never blocks.
+start_stub wronglang
+run_lang "$TMP/l5" "$(mkl "$LEN" net-l5)" STINGRAY_SHADOW=1 STINGRAY_LANG=1; rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+l5=$(jq -r 'select(.shape == "wrong_language") | .would_block' "$TMP/l5/decisions.jsonl" 2>/dev/null | head -1)
+{ [ "$rc" = 0 ] && [ "$l5" = "false" ]; } \
+  && say ok "L5 SHADOW + LANG → recorded, not blocked" \
+  || say no "L5 SHADOW + LANG → exit $rc, would_block=${l5:-none}"
+
+# L6. A decision record that cannot be written is a failure path: not blocked.
+mkdir -p "$TMP/l6/decisions.jsonl"
+start_stub wronglang
+run_lang "$TMP/l6" "$(mkl "$LEN" net-l6)" STINGRAY_LANG=1; rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+{ [ "$rc" = 0 ] && [ ! -s "$TMP/l6.err" ]; } \
+  && say ok "L6 unwritable decision log → not blocked, nothing printed" \
+  || say no "L6 unwritable decision log → exit $rc; stderr: $(head -c 120 "$TMP/l6.err")"
+
+# L7. Nothing to judge, nothing sent.
+rm -f "$TMP/captured-record"; start_stub record
+run_lang "$TMP/l7" "$(mkl 'acceptance 49/0, network 10/0, mutants 4/0, fixture 44/0.' net-l7)" STINGRAY_LANG=1
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+[ ! -s "$TMP/captured-record" ] \
+  && say ok "L7 no prose → no request" \
+  || say no "L7 no prose → a request was sent: $(head -c 120 "$TMP/captured-record")"
+
 if [ "${1:-}" != "--live" ]; then
   echo; printf 'passed %d, failed %d  (live cases skipped; pass --live)\n' "$pass" "$fail"
   [ "$fail" = 0 ]; exit

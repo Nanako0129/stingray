@@ -47,7 +47,7 @@ claude:  [edits the config, runs the suite]
 | 1 | `no_action` — stopped without doing anything, when it could have acted | [Jev](https://typesafe.ai) |
 | 2 | `broken_promise` — declared an action that this turn's tool calls do not account for | Jev |
 | 3 | `unwatched` — promised to monitor external progress (CI, build, PR review) | Computed locally or Jev (see below) |
-| 4 | `wrong_language` — the final message is not in the language your settings ask for | Computed locally |
+| 4 | `wrong_language` — the final message is not in the language your settings ask for | Jev |
 
 Shape 3 separates into two distinct layers:
 
@@ -58,9 +58,11 @@ Earlier documentation stated both halves of shape 3 were exact values. That clai
 
 The nudge delivered on interception is a fixed paragraph written to stderr, not a dynamically generated critique. It offers three ways out: finish the work, launch a background poll, or state what decision is blocking progress.
 
-Shape 4 reads `language` from Claude Code's settings — the project's `.claude/settings.local.json`, then its `.claude/settings.json`, then your user `settings.json` under `CLAUDE_CONFIG_DIR` — and checks the prose of the final message against it. Code — fenced with backticks or tildes, of any length — inline code, URLs, block quotes and paths are removed first, because they are English in every language. What is left fails when fewer than 40% of it is Han, counted as ideographs against English words, once there are at least 12 of them. The floor lets "OK" and a terse status line through unjudged. Its nudge asks for the same message again in the configured language, with code and identifiers left as they were.
+Shape 4 reads `language` from Claude Code's settings — the project's `.claude/settings.local.json`, then its `.claude/settings.json`, then your user `settings.json` under `CLAUDE_CONFIG_DIR` — and asks Jev whether the prose of the final message is written in it. Any target language works; common codes such as `zh-TW` are sent as a name, `繁體中文（台灣，zh-TW）`, which Jev reads far more reliably than the bare code. Its nudge asks for the same message again in that language, with code and identifiers left as they were.
 
-Only Chinese targets are checked. Any other `language` value, or none, means shape 4 does nothing.
+A message is asked about only when it has prose to judge — at least 12 units once code, inline code, URLs, block quotes and paths are removed, a unit being one Han, kana or Hangul character or one word in any other script. Without that floor, a line of test results was judged "not Chinese", which is true and useless.
+
+It needs an API key, like shapes 1 and 2, and sends the same redacted final message they do. It replaced a local rule that counted Han characters against English words, which could only ever see English: Japanese scored as Chinese, and Korean or Russian as nothing at all.
 
 ## Friction only ever goes up
 
@@ -102,7 +104,7 @@ claude plugin uninstall stingray
 }
 ```
 
-`STINGRAY_SHAPE3` is the free local watch check and `STINGRAY_LANG` the language check; neither needs an account, a key or the network. With an API key, start from `"STINGRAY_SHADOW": "1"` instead, which calls Jev and logs decision records but never blocks turn completion. Restart Claude Code after changing the file.
+`STINGRAY_SHAPE3` is the free local watch check and needs no account, key or network. `STINGRAY_LANG` is the language check, judged by Jev, so it needs an API key and sends the redacted final message. With an API key, start from `"STINGRAY_SHADOW": "1"` instead, which calls Jev and logs decision records but never blocks turn completion. Restart Claude Code after changing the file.
 
 > **Why not `export` in your shell:** Claude Code reads `settings.json` itself when it starts, so every session gets the switches however it was launched. A shell `export` reaches only sessions started from a shell opened after the line was added. A terminal tab left open from before, the desktop app and IDE extensions all miss it, and the hook then does nothing without saying so. This was hit in practice: a tab open for eight days kept launching sessions with none of the switches set.
 
@@ -150,12 +152,12 @@ No SDK or additional runtime is required.
 
 ## API key
 
-Shapes 1 and 2 call TypeSafe System One (`jev-1.13.0`). Shape 3's **certain** case — a promise with no active tasks or scheduled crons — requires neither an API key nor network access. The correspondence judgement requires both, as it asks the model whether running jobs match what was promised.
+Shapes 1 and 2, and the language check, call TypeSafe System One (`jev-1.13.0`). Shape 3's **certain** case — a promise with no active tasks or scheduled crons — requires neither an API key nor network access. The correspondence judgement requires both, as it asks the model whether running jobs match what was promised.
 
 1. Obtain a key at <https://typesafe.ai>.
 2. Place it in `~/.config/typesafe/api_key` (`chmod 600`), or export `TYPESAFE_API_KEY`. The configuration file is preferred because environment variables are exposed to child processes.
 
-**Without an API key, stingray leaves shapes 1 and 2 inactive.** It outputs `(stingray: unavailable — no key; shapes 1/2 skipped)` once per session while keeping shape 3's local check operational. It does not fail silently.
+**Without an API key, stingray leaves shapes 1 and 2 and the language check inactive.** It outputs `(stingray: unavailable — no key; Jev checks skipped)` once per session while keeping shape 3's local check operational. It does not fail silently.
 
 ## Switches (off by default)
 
@@ -167,7 +169,7 @@ Precedence and execution rules:
 2. **`STINGRAY_SHAPE3=1` (local arithmetic check):** Intercepts turn completion on shape 3's certain case alone (promised to monitor work, but active tasks plus scheduled crons equal 0). Requires no account, no key, and no network requests.
 3. **`STINGRAY_SHADOW=1` (shadow mode, highest precedence):** Evaluates shapes 1 and 2 via Jev and writes decision records to disk, but **never blocks turn completion**. Overrides blocking behavior from both `STINGRAY=1` and `STINGRAY_SHAPE3=1`. Start here once you configure an API key.
 4. **`STINGRAY=1` (active mode):** Blocks turn completion on shapes 1 and 2 when Jev flags unfulfilled promises or missing actions.
-5. **`STINGRAY_LANG=1` (local language check):** Blocks turn completion when the final message is not in the configured `language`. Local like shape 3: no key, no network, and with this switch alone nothing leaves the machine. It does not turn shape 3 on.
+5. **`STINGRAY_LANG=1` (language check):** Blocks turn completion when Jev judges the final message not to be in the configured `language`. Needs an API key and sends the redacted final message with one question; with `STINGRAY=1` on too, it rides in the same request. It does not turn shape 3 on, and does not ask shapes 1 and 2.
 6. **`STINGRAY_SHAPE3_JUDGE=1` (shape 3 correspondence judgement):** Allows the model evaluation for shape 3 to block turn completion when background work is running but does not match the promise. Requires `STINGRAY_SHAPE3=1` and non-shadow mode. Defaults to off even when shape 3 is active, because its threshold is borrowed without dedicated offline measurement.
 
 | Variable | Effect |
@@ -176,7 +178,7 @@ Precedence and execution rules:
 | `STINGRAY_SHADOW=1` | Calls Jev, logs decision records, **never blocks turn completion**. Outranks `STINGRAY=1`, `STINGRAY_SHAPE3=1` and `STINGRAY_LANG=1`. Start here. |
 | `STINGRAY=1` | Blocks turn completion on shapes 1 and 2 via Jev. |
 | `STINGRAY_SHAPE3=1` | Blocks turn completion on shape 3's **certain** case (promised to watch work, but active background tasks + scheduled crons == 0). Needs no key and no network. Outranked by `STINGRAY_SHADOW=1`. |
-| `STINGRAY_LANG=1` | Blocks turn completion on shape 4, a final message not in the configured `language`. Needs no key and no network. Outranked by `STINGRAY_SHADOW=1`, which records it instead. |
+| `STINGRAY_LANG=1` | Blocks turn completion on shape 4, a final message Jev judges not to be in the configured `language`. Needs a key; sends the redacted final message. Outranked by `STINGRAY_SHADOW=1`, which records it instead. |
 | `STINGRAY_SHAPE3_JUDGE=1` | Allows shape 3's **correspondence judgement** to block turn completion (active tasks > 0, but model judges they do not match the promise). Off by default; requires `STINGRAY_SHAPE3=1` and `STINGRAY=1`. In shape-3-only mode the hook exits before the request path, so this judgement never runs there. Logs decisions regardless of switch state. |
 
 The minimal working configuration is `STINGRAY_SHAPE3=1` alone: no external account, no API key, and no outbound requests. It reads the local payload and runs regular expressions against the message, so execution overhead is non-zero, but isolated from network dependencies.
@@ -185,13 +187,14 @@ Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s),
 
 ## What leaves your machine
 
-Only three fields are transmitted, and only when an API key is configured:
+Only these fields are transmitted, and only when an API key is configured:
 
 | Field | Content |
 |---|---|
 | `final_text` | The last assistant message, redacted, then truncated to the last 2400 **bytes** — roughly 800 CJK characters, but approximately 2400 ASCII characters. An English turn transmits roughly three times the character volume used in benchmark evaluations. |
 | `tools` | Tool **names** and invocation counts for this turn, excluding arguments. |
 | `background` | For each background task: status and **description**. For each scheduled cron: the assigned **prompt**. Both undergo message redaction after stripping credential patterns. Command lines are never sent. |
+| `language` | The configured language, as a name — on the language question only, which carries this and `final_text` and nothing else. |
 
 User prompts sent to Claude are never transmitted. Tool arguments, file contents, diffs, and executed command lines are never transmitted.
 
@@ -221,7 +224,7 @@ Across 48 captured payloads from real turns, all eight tracked leak categories r
 
 The **substance of the work survives transmission**. Reading those payloads reveals that a quota window was measured at 80% while 47 samples in the same window reported 77%, that a 60-second blind poll was running, and that six recovery files dated 2026-08-22 were present in a directory. Identifiers were masked; the operational task, the error encountered, and the planned resolution remained legible.
 
-TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability low enough that a leak leaves no practical financial remedy. Read the current terms rather than this summary of them — the terms change and the summary will not. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. No outbound request is made by default, or with only the local switches set — `STINGRAY_SHAPE3=1`, `STINGRAY_LANG=1`, or both — which exit before the request path.
+TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability low enough that a leak leaves no practical financial remedy. Read the current terms rather than this summary of them — the terms change and the summary will not. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. No outbound request is made by default, or with `STINGRAY_SHAPE3=1` alone, which exits before the request path. `STINGRAY_LANG=1` sends the redacted final message, like shapes 1 and 2.
 
 ## Calibration
 
@@ -251,6 +254,7 @@ Two independent bars govern activation before either evaluator may block turn co
 | Shapes 1 and 2 (`STINGRAY=1`) | ≥ 40 shadow records, ≥ 70% precision on manual inspection, ≤ 3 false nudges per 100 stop points, τ placed in the empty band between score clusters with derivation documented |
 | Shape 3, certain case (`STINGRAY_SHAPE3=1`) | None — pure arithmetic, no threshold to calibrate |
 | Shape 3, correspondence (`STINGRAY_SHAPE3_JUDGE=1`) | ≥ 20 shadow records, ≥ 70% precision on manual inspection |
+| Shape 4, language (`STINGRAY_LANG=1`) | None set. Measured only on 20 synthetic replies, and blocks from the first turn — see known limits |
 
 Records land in `$STINGRAY_STATE_DIR/decisions.jsonl`, one line per decision, tagged with `qset_hash` — the SHA-256 hash of `questions.json`, **not the hash of the request**. Modifying criteria shifts score distributions, voiding thresholds calibrated under earlier phrasing; a per-request hash would vary on every turn and could not detect criteria drift.
 
@@ -268,6 +272,8 @@ The 1.0-second budget applies to shadow mode as well: shadow mode executes the s
 
 This budget covers healthy endpoints. When an endpoint hangs, execution waits until `STINGRAY_TIMEOUT`: **measured at 6.15s with the default 6-second timeout** against an unresponsive stub server. Lower `STINGRAY_TIMEOUT` if that delay is unacceptable during outages.
 
+With `STINGRAY_LANG=1` alone, every turn that has prose to judge now makes this round trip too, where it used to make none. A request carrying only the language question took 0.68–1.03s across 12 calls, measured by calling the endpoint directly with the same request shape rather than at hook position. With `STINGRAY=1` on as well, the language question rides in the request shapes 1 and 2 already make, adding no round trip.
+
 ## Loop protection
 
 Two distinct guards prevent execution loops, avoiding single points of failure:
@@ -280,9 +286,9 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 - Criteria in `questions.json` are written in Traditional Chinese, matching the corpus used for the 81.8% benchmark. English criteria have zero live measurements; replacing them voids that accuracy figure. Working in English requires rewriting criteria and recalibrating thresholds.
 - Shape 3 accuracy cannot be measured offline: `background_tasks` exists only at hook execution and cannot be reconstructed from saved transcripts. Test suites verify logic on synthetic inputs, but production precision depends on your shadow logs.
 - Redaction leaves the substance of the work visible, as detailed in the privacy section.
-- Shape 4's threshold rests on a lopsided sample. Across 2,967 real messages from zh-TW sessions, 2,834 of them long enough to judge, no zh-TW reply scored under 60% Han, but only seven replies were actually in English. The zh-TW side of the line is well measured; the other side is seven examples. A floor of 8 would catch 13 English replies, and was rejected because it let terse zh-TW status lines come within five points of the line.
-- Shape 4 does not tell Simplified from Traditional Chinese, and checks no language other than Chinese.
-- The harness writes its own English notices into the transcript as assistant text — "You've hit your session limit …", "API Error: Connection lost mid-response …". The hooks reference says a turn ending on an API error fires `StopFailure`, not `Stop`, which would keep them away from this hook. That is documented, not measured. If one does arrive, shape 4 blocks it once and the re-entry guard stops a second.
+- Shape 4 has been measured on synthetic replies only, 20 of them, and no real transcript was sent to measure it. zh-TW replies scored 0.10–0.23, including one made of identifiers and one quoting English; English, Japanese, Korean and Russian replies 0.97–0.98; English quoting Chinese terms 0.77; the wrong target in either direction 0.95–0.98. τ is the shared 0.5. How it scores on your own writing is what `decisions.jsonl` will show — its records are `wrong_language` and `language_ok`.
+- Shape 4 does not reliably tell Simplified from Traditional Chinese: a Simplified reply against a zh-TW setting scored 0.29.
+- The harness writes its own English notices into the transcript as assistant text — "You've hit your session limit …", "API Error: Connection lost mid-response …". The hooks reference says a turn ending on an API error fires `StopFailure`, not `Stop`, which would keep them away from this hook. That is documented, not measured. If one does arrive, shape 4 judges it once and the re-entry guard stops a second.
 - `network.sh --live` encountered an 8/9 result on a single test run; five subsequent reruns could not reproduce the failure, and the failing check was not identified. This occurrence is documented in test comments.
 
 ## Stop hook facts, measured not read

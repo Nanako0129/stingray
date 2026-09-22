@@ -79,7 +79,7 @@ mutate "null-is-empty-array" "16" \
 # the regression that actually shipped once: the switch promised no request
 # while a key on disk made one anyway.
 mutate "shape3-reaches-jev" "15" \
-  '[ "$MODE" = "local" ] && exit 0' \
+  '[ "$MODE" = "local" ] && [ "$lang_ask" != "1" ] && exit 0' \
   ':'
 
 echo
