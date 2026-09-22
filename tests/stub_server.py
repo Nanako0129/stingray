@@ -8,8 +8,11 @@ proven without anything leaving the machine.
                                               then answer with zero scores
     stub_server.py badscore <portfile>        answer 200 with a score of 2,
                                               outside the probability range
-    stub_server.py mismatch <portfile>        answer 200 scoring watch_mismatch
-                                              at 1.0 and everything else at 0.0
+    stub_server.py mismatch <portfile>        answer 200 scoring watch_claim and
+                                              watch_mismatch at 1.0, everything
+                                              else at 0.0
+    stub_server.py claimonly <portfile>       answer 200 scoring watch_claim at
+                                              1.0 and everything else at 0.0
     stub_server.py wronglang <portfile>       answer 200 scoring wrong_language
                                               at 1.0 and everything else at 0.0
 
@@ -29,7 +32,7 @@ import threading
 # --list-modes. The docstring above is prose and can go stale; anything checking
 # these names must read them from here, or it is comparing one comment with
 # another.
-MODES = ("hang", "401", "record", "badscore", "mismatch", "wronglang")
+MODES = ("hang", "401", "record", "badscore", "mismatch", "claimonly", "wronglang")
 
 if sys.argv[1:2] == ["--list-modes"]:
     print("\n".join(MODES))
@@ -39,6 +42,9 @@ mode, portfile = sys.argv[1], sys.argv[2]
 if mode not in MODES:
     raise SystemExit(f"unknown mode {mode!r}; expected one of {', '.join(MODES)}")
 outfile = sys.argv[3] if len(sys.argv) > 3 else None
+HIGH = {"mismatch": {"watch_claim", "watch_mismatch"},
+        "claimonly": {"watch_claim"},
+        "wronglang": {"wrong_language"}}
 lock = threading.Lock()
 
 srv = socket.socket()
@@ -108,17 +114,18 @@ def serve(conn):
                 names = []
             conn.sendall(ok_response({"answers": {n: {"noul": 2} for n in names}}))
             return
-        if mode in ("mismatch", "wronglang"):
-            # Only one question scores high, so a block under this stub can only
-            # have come from that question.
-            high = "watch_mismatch" if mode == "mismatch" else "wrong_language"
+        if mode in HIGH:
+            # Only the named questions score high, so a block under this stub can
+            # only have come from them. mismatch includes watch_claim because the
+            # correspondence question is acted on only after a promise is judged.
+            high = HIGH[mode]
             body = read_request(conn)
             try:
                 names = list(json.loads(body).get("questions", {}))
             except (ValueError, AttributeError):
                 names = []
             conn.sendall(ok_response({"answers": {
-                n: {"noul": 1.0 if n == high else 0.0} for n in names}}))
+                n: {"noul": 1.0 if n in high else 0.0} for n in names}}))
             return
         if mode == "401":
             # Drain the whole request first. A single recv can return before

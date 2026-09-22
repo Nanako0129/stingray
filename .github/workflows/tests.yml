@@ -61,15 +61,6 @@ jobs:
       - name: Guards still guard (mutation check)
         run: bash tests/mutants.sh
 
-      # Labelled lines, several of them observed false positives that blocked a
-      # real turn. The runner reads WATCH_RE out of the hook instead of keeping
-      # a copy, so a change to the regex is tested rather than mirrored. Lines
-      # marked `short` are known misses of the target-keyword shape; they print
-      # as COST and do not fail, which keeps the cost visible without pretending
-      # it is a pass.
-      - name: Watch-declaration fixture
-        run: bash tests/watch-fixture.sh
-
   # `claude plugin update` keys on the version string alone. A hook change under
   # an unchanged version reaches no existing install while the tool reports
   # success, so the version is enforced rather than remembered.
