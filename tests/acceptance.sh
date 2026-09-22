@@ -318,6 +318,15 @@ SHORT='Now route the other two call sites through the new helper before running 
 check "28 short English reply → block" "$(mk "$SHORT" '[]' sess-lang-28)" 2 \
   "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
 
+# 29. A line that only looks like a fence opener does not swallow the reply.
+#     ```js``` has a backtick in its info string, so it opens nothing. An opener
+#     that accepted it ran to the next ``` line and removed the English between,
+#     and the paired /```.*?```/ fallback did the same across lines; the reply
+#     below scored 1 Han and 0 words and passed.
+FAKEFENCE="$(printf '%s\n%s\n```\n好。\n' '```js``` is how you would mark it, but I think the real problem here is that the retry loop never resets its counter after a success,' 'so every later failure is counted twice and the budget runs out early.')"
+check "29 fake fence opener does not hide English → block" "$(mk "$FAKEFENCE" '[]' sess-lang-29)" 2 \
+  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
 # 24. LANG alone does not switch shape 3 on: a watch promise with nothing
 #     running passes, and nothing is recorded for it.
 check "24 LANG alone leaves shape 3 off → pass" "$(mk "$WATCH_PLAIN" '[]' sess-lang-24)" 0 "-" \

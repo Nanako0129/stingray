@@ -207,8 +207,15 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
 # tildes, closed by a line of the same character at least as long, or by the end
 # of the message. A regex for paired ``` alone left a ~~~ block, or a ```` block
 # holding ```, in the prose sample, where its English could block a zh-TW reply.
-# Neither form occurs in the corpus below; the false-block direction is why it
-# is handled anyway.
+# Across the 2,967 messages below, 0 lines open a ~~~ fence and 0 open a ````
+# one; the false-block direction is why they are handled anyway.
+#
+# A backtick opener's info string may not contain a backtick, as in CommonMark.
+# Without that, a first line reading ```js``` opened a "fence" that ran to the
+# next ``` line and removed the English prose in between: a whole English reply
+# came out as 1 Han and 0 words, and passed. The paired fallback /```.*?```/ is
+# gone for the same reason — it spans lines and eats whatever lies between two
+# stray triple backticks. Same-line ```code``` is left to the inline-code rule.
 #
 # What is left is counted as Han characters against Latin words of two letters or
 # more, and the reply is wrong when fewer than 40% of those are Han, provided
@@ -242,9 +249,9 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
 # blocked once and the re-entry guard stops a second.
 lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
   printf '%s' "$1" | perl -CSD -0777 -ne '
-    s/^[ \t]*(`{3,})[^\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
+    s/^[ \t]*(`{3,})[^`\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
     s/^[ \t]*(~{3,})[^\n]*\n.*?(?:^[ \t]*\1~*[ \t]*$|\z)/ /gms;
-    s/```.*?```/ /gs; s/`[^`\n]*`/ /g; s{https?://\S+|www\.\S+}{ }g;
+    s/`[^`\n]*`/ /g; s{https?://\S+|www\.\S+}{ }g;
     s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
     my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
 }
