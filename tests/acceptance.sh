@@ -352,6 +352,23 @@ LOGDIR="$TMP/state-nolog"; mkdir -p "$LOGDIR/decisions.jsonl"
 check "L16 unwritable decision log → pass" "$(mk "$ENGLISH" '[]' sess-lang-16)" 0 "-" \
   STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" STINGRAY_STATE_DIR="$LOGDIR" "${OFFLINE[@]}"
 
+# L17. An inline code span may run across a line break. Its English is removed
+#     with it, so this zh-TW reply scores 100% and passes; with spans limited
+#     to one line the span stays in the sample and it scores 33% and blocks. A
+#     first version carried too little English to cross 40% either way, and a
+#     mutant showed it could not fail.
+MULTI="$(printf '%s\n%s\n' '改好了，指令如下，``npm run build && npm run lint && npm test -- --coverage --reporter verbose --maxWorkers four --runInBand' '--detectOpenHandles --forceExit --silent --bail --ci --watchAll false --testTimeout thirty --logHeapUsage --passWithNoTests --json --outputFile report``，兩個平台都跑過。')"
+check "L17 code span across a line break → pass" "$(mk "$MULTI" '[]' sess-lang-17)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
+# L18. A code span does not cross a blank line. Two stray backticks, one each in
+#     the first and third paragraphs, must not pair and remove the English
+#     paragraph between them — letting spans cross every newline did exactly
+#     that, and this English reply then scored as Chinese and passed.
+STRAY="$(printf '%s\n\n%s\n\n%s\n' '看一下 ` 這裡。' 'The second paragraph is the actual reply, and it is ordinary English prose explaining the whole change in detail for the reviewer before the merge.' '還有 ` 這個。')"
+check "L18 stray backticks across paragraphs → block" "$(mk "$STRAY" '[]' sess-lang-18)" 2 \
+  "not in the configured language" STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${OFFLINE[@]}"
+
 # L08. LANG alone does not switch shape 3 on: a watch promise with nothing
 #     running passes, and nothing is recorded for it.
 check "L08 LANG alone leaves shape 3 off → pass" "$(mk "$WATCH_PLAIN" '[]' sess-lang-24)" 0 "-" \

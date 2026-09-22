@@ -212,7 +212,11 @@ watch_claims() {  # watch_claims <text>; 0 = claims to watch something
 # one; the false-block direction is why they are handled anyway.
 #
 # Inline code is removed at any backtick length — a run closed by a run of the
-# same length, as CommonMark closes it. Only single backticks were removed
+# same length, as CommonMark closes it — and across line breaks inside one
+# paragraph, but never across a blank line, since a code span cannot cross a
+# paragraph. Letting it cross every newline was proposed and measured: a stray
+# backtick in the first paragraph paired with one in the third and removed the
+# English second paragraph whole, 39 Han and 17 words becoming 18 and 0. Only single backticks were removed
 # before, so a zh-TW reply quoting commands in double backticks kept their
 # English and was blocked: measured, 8 Han to 16 words.
 #
@@ -263,7 +267,7 @@ lang_share() {  # lang_share <text>; prints "<han> <latin words>" for the prose
   printf '%s' "$1" | perl -CSD -0777 -ne '
     s/^[ \t]*(`{3,})[^`\n]*\n.*?(?:^[ \t]*\1`*[ \t]*$|\z)/ /gms;
     s/^[ \t]*(~{3,})[^\n]*\n.*?(?:^[ \t]*\1~*[ \t]*$|\z)/ /gms;
-    s/(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/ /g;
+    s/(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)/ /gs;
     s{https?://[\x21-\x7e]+|www\.[\x21-\x7e]+}{ }g;
     s/^\s*>.*$/ /mg; s{(?:~|/|\.\.?/)[\w./-]+|\b[\w-]+\.[A-Za-z]{1,5}\b}{ }g;
     my $h = () = /\p{sc=Han}/g; my $w = () = /[A-Za-z]{2,}/g; print "$h $w";'
@@ -596,6 +600,10 @@ fi
 # below reports the list as unavailable. It used to iterate with []? and report
 # "nothing running or scheduled" — unknown state sent to Jev as confirmed
 # inactivity, the same mistake shape 3 guards against with its own type check.
+# Observed in tests/network.sh B7, which sends a payload with background_tasks
+# deleted and reads the recorded request body: every question's
+# instructions.background is "background list unavailable", and with the old
+# expression restored it is "nothing running or scheduled".
 bg_text=$(printf '%s' "$input" | jq -r '
   if (.background_tasks | type) != "array" then empty else
   [ (.background_tasks[] | "\(.status): \(.description // "(no description)")"),
