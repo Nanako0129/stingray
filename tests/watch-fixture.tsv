@@ -6,10 +6,12 @@
 #   expect = quiet   the line does not; shape 3 must let it through
 #
 # tests/watch-fixture.sh sends each line through the shipped hook to Jev and
-# compares. It needs a key and is not run in CI. At τ = 0.5 it agrees on 43 of
-# the 44: "keep an eye on the review" scores 0.48 — it has no subject and reads
-# as well as an instruction to the user. It stays labelled `watch`, because the
-# label records what the line means, not what the rule does with it.
+# compares. It needs a key and is not run in CI. At τ = 0.5 it agrees on 42 of
+# the 43 it scores. The miss is "keep an eye on the review" at 0.46–0.48: it
+# has no subject and reads as well as an instruction to the user. It stays
+# labelled `watch`, because the label records what the line means, not what
+# the rule does with it. The 44th, "poll-coderabbit.sh 的參數解析有缺陷", is
+# never scored: redaction drops a line naming a file before Jev sees it.
 #
 # The lines were collected while shape 3 was a regular expression, and origin
 # records why each was added, because a fixture whose provenance is lost

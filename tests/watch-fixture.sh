@@ -19,7 +19,7 @@ KEY="${TYPESAFE_API_KEY:-$(cat "${HOME:-}/.config/typesafe/api_key" 2>/dev/null)
 if [ -z "$KEY" ]; then echo "watch-fixture: skipped, needs a TypeSafe key"; exit 0; fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0; n=0
+pass=0; fail=0; unscored=0; n=0
 while IFS=$'\t' read -r expect origin text; do
   case "$expect" in ''|'#'*) continue ;; esac
   n=$((n + 1))
@@ -31,13 +31,20 @@ while IFS=$'\t' read -r expect origin text; do
     | env -i PATH="$PATH" HOME="${HOME:-}" TYPESAFE_API_KEY="$KEY" STINGRAY_SHAPE3=1 \
         STINGRAY_STATE_DIR="$TMP/st" "$HOOK_SH" "$HOOK" >/dev/null 2>&1 || rc=$?
   got=quiet; [ "$rc" = 2 ] && got=watch
-  score=$(jq -r "select(.session == \"fixture-$n\") | .score" "$TMP/st/decisions.jsonl" 2>/dev/null | head -1)
-  if [ "$got" = "$expect" ]; then
+  # The hook fails open: a timeout or a broken answer exits 0 just as a quiet
+  # verdict does. Count a line only when Jev scored it, or every quiet line
+  # would agree with a measurement that never happened.
+  score=$(jq -r --arg s "fixture-$n" 'select(.session == $s and (.shape == "watch_none" or .shape == "unwatched")) | .score' \
+    "$TMP/st/decisions.jsonl" 2>/dev/null | head -1)
+  if [ -z "$score" ]; then
+    unscored=$((unscored + 1))
+    printf 'UNSCORED  exit=%s (%s)\n      %s\n' "$rc" "$origin" "$text"
+  elif [ "$got" = "$expect" ]; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
-    printf 'MISS  expected=%s got=%s score=%s (%s)\n      %s\n' "$expect" "$got" "${score:-none}" "$origin" "$text"
+    printf 'MISS  expected=%s got=%s score=%s (%s)\n      %s\n' "$expect" "$got" "$score" "$origin" "$text"
   fi
 done < "${1:-$HERE/watch-fixture.tsv}"
-echo "$pass agreed, $fail disagreed, of $n labelled lines"
-[ "$fail" = 0 ]
+echo "$pass agreed, $fail disagreed, $unscored unscored, of $n labelled lines"
+[ "$fail" = 0 ] && [ "$unscored" = 0 ]

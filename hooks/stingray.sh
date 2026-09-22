@@ -6,11 +6,7 @@
 #   1 no_action        stopped without doing anything          -> judged by Jev
 #   2 broken_promise   declared an action, tools don't cover it -> judged by Jev
 #   3 unwatched        promised to watch CI/review, nothing is polling
-#                                                              -> computed, no Jev
-#
-# Shape 3 is deliberately NOT sent to a model: both halves are exact values (a
-# declaration regex and the hook's own background_tasks field). Turning a
-# certainty into a probability is a downgrade.
+#                      -> the promise judged by Jev, the background counted here
 #
 # Stop hook contract, measured on Claude Code v2.1.278 (2026-09-21), not read
 # off the docs — the docs are wrong on three counts:

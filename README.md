@@ -181,7 +181,7 @@ Precedence and execution rules:
 | `STINGRAY_LANG=1` | Blocks turn completion on shape 4, a final message Jev judges not to be in the configured `language`. Needs a key; sends the redacted final message. Outranked by `STINGRAY_SHADOW=1`, which records it instead. |
 | `STINGRAY_SHAPE3_JUDGE=1` | Allows shape 3's **correspondence judgement** to block turn completion (active tasks > 0, but model judges they do not match the promise). Off by default; requires `STINGRAY_SHAPE3=1`. Logs decisions regardless of switch state. |
 
-The smallest configuration is `STINGRAY_SHAPE3=1` alone: one question per turn, about whether the reply promised a watch.
+The smallest configuration is `STINGRAY_SHAPE3=1` alone: one question per turn, about whether the reply promised a watch. When something is running in the background, a second one (`watch_mismatch`) rides in the same request, carrying the tool list and background statuses as well, and is logged even while `STINGRAY_SHAPE3_JUDGE` is off.
 
 Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
 
@@ -244,8 +244,9 @@ High precision paired with low recall fits this design: an erroneous nudge waste
 1. Labels systematically undercount positive cases: users only sometimes type "keep going", often answering directly or continuing manually.
 2. For the two false positives observed at τ=0.5, manual review showed one was a labeling error rather than an incorrect prediction; 10 of 11 positive flags were accurate under human review.
 3. The offline benchmark ran through a *copy* of the redactor that masked a hardcoded project list, whereas the shipped version derives names dynamically. The 81.8% figure was measured on a close neighbor of the shipped code, not on the exact implementation.
+4. It was measured on requests that batched several turns, each asked shapes 1 and 2 and an earlier shape 3 question. The shipped request carries one turn and only the questions its switches and background call for. Measured on 6 inputs, twice each, with and without `watch_claim` and `wrong_language` alongside: the mean of either score moved by at most 0.04, the same as the most the identical request moved when sent twice (0.04), and no input moved across τ. Six inputs show no large effect, not no effect.
 
-**Shape 3's promise judgement was measured on 59 labelled lines** — the 44 of `tests/watch-fixture.tsv` and 15 synthetic — which `tests/watch-fixture.sh` re-runs live through the shipped hook: 43 of the 44 agree at τ = 0.5. **Its correspondence judgement has never been evaluated.** Its threshold is borrowed from the other questions without independent validation.
+**Shape 3's promise judgement was measured on 59 labelled lines** — the 44 of `tests/watch-fixture.tsv` and 15 synthetic — which `tests/watch-fixture.sh` re-runs live through the shipped hook: at τ = 0.5 it agrees on 42 of the 43 it scores. The 44th names a file, so redaction removes it and it is never asked (see Known limits). **Its correspondence judgement has never been evaluated.** Its threshold is borrowed from the other questions without independent validation.
 
 Two independent bars govern activation before either evaluator may block turn completion:
 
