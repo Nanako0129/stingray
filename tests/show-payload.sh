@@ -25,6 +25,7 @@ for v in $(env | sed -n 's/^\(STINGRAY[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; don
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/../hooks/stingray.sh"
+. "$HERE/hook-shell.sh"
 TMP="$(mktemp -d)"
 PROJECTS="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 trap '[ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null; rm -rf "$TMP"' EXIT
@@ -81,7 +82,7 @@ for i in $(seq 0 $((count - 1))); do
   ( export STINGRAY_STATE_DIR="$TMP/state" STINGRAY_SHADOW=1 \
            TYPESAFE_API_KEY=local-stub \
            STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
-    bash "$HOOK" <"$TMP/stdin.$i" >/dev/null 2>"$TMP/err.$i" )
+    "$HOOK_SH" "$HOOK" <"$TMP/stdin.$i" >/dev/null 2>"$TMP/err.$i" )
   rc=$?
   # Exit status and stderr are the observable contract, so the audit asserts on
   # them rather than discarding them. A turn that drops out silently shrinks the

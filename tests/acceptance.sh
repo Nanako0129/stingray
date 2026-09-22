@@ -18,6 +18,7 @@ for v in $(env | sed -n 's/^\(STINGRAY[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; don
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/../hooks/stingray.sh"
+. "$HERE/hook-shell.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
@@ -46,7 +47,7 @@ check() {
   local err rc
   err="$TMP/err.$$"
   ( export STINGRAY_STATE_DIR="$TMP/state"; for kv in "$@"; do export "${kv?}"; done
-    printf '%s' "$stdin" | bash "$HOOK" >/dev/null 2>"$err" )
+    printf '%s' "$stdin" | "$HOOK_SH" "$HOOK" >/dev/null 2>"$err" )
   rc=$?
   local ok=1
   [ "$rc" = "$want" ] || ok=0
@@ -69,7 +70,7 @@ WATCH_PATH='已經送審了，我會盯著 src/main.rs 的 CI 結果，有動靜
 NEUTRAL='這三個檔案都改好了，測試全過。'
 OFFLINE=(TYPESAFE_API_KEY= HOME="$TMP/nohome" STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable)
 
-echo "stingray acceptance — offline cases"
+echo "stingray acceptance — offline cases (hook runs on $HOOK_SH $HOOK_SH_VERSION)"
 
 # 1. Off by default: no env var set, nothing happens at all.
 check "1  off by default → no action" "$(mk "$WATCH_PLAIN" '[]')" 0 "-"
@@ -210,7 +211,7 @@ BUDGET_STATE="$TMP/budget"; rm -rf "$BUDGET_STATE"
 for i in 1 2 3 4; do
   err="$TMP/b.$i"
   ( export STINGRAY_STATE_DIR="$BUDGET_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
-    printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | bash "$HOOK" >/dev/null 2>"$err" )
+    printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | "$HOOK_SH" "$HOOK" >/dev/null 2>"$err" )
   rc=$?
   want=2; [ "$i" = 4 ] && want=0
   if [ "$rc" = "$want" ]; then

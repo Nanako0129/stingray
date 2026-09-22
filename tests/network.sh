@@ -20,6 +20,7 @@ for v in $(env | sed -n 's/^\(STINGRAY[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; don
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/../hooks/stingray.sh"
+. "$HERE/hook-shell.sh"
 TMP="$(mktemp -d)"
 pass=0; fail=0
 SYNTHETIC='我現在就把設定檔的逾時值改掉，然後跑一次測試確認。'
@@ -66,7 +67,7 @@ start_stub() {
 run_hook() {
   local err="$1"; shift
   ( for kv in "$@"; do export "${kv?}"; done
-    printf '%s' "$(mk "$SYNTHETIC")" | bash "$HOOK" >/dev/null 2>"$err" )
+    printf '%s' "$(mk "$SYNTHETIC")" | "$HOOK_SH" "$HOOK" >/dev/null 2>"$err" )
 }
 
 echo "stingray network acceptance"
@@ -171,7 +172,7 @@ start_stub mismatch
 ( export STINGRAY_STATE_DIR="$TMP/s4b" STINGRAY_SHAPE3=1 STINGRAY_SHAPE3_JUDGE=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
          STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
   mk_watch '[{"id":"b1","type":"shell","status":"running","description":"build","command":"make"}]' \
-    | bash "$HOOK" >/dev/null 2>"$TMP/b4.err" )
+    | "$HOOK_SH" "$HOOK" >/dev/null 2>"$TMP/b4.err" )
 rc=$?
 kill "$STUB_PID" 2>/dev/null; STUB_PID=
 { [ "$rc" = 2 ] && grep -q "corresponds to it" "$TMP/b4.err"; } \
@@ -185,7 +186,7 @@ start_stub record
 ( export STINGRAY_STATE_DIR="$TMP/s5b" STINGRAY_SHAPE3=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
          STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
   mk_watch '[{"id":"b1","type":"shell","status":"running","description":"poll CodeRabbit","command":"gh pr checks"}]' \
-    | bash "$HOOK" >/dev/null 2>"$TMP/b5.err" )
+    | "$HOOK_SH" "$HOOK" >/dev/null 2>"$TMP/b5.err" )
 rc=$?
 kill "$STUB_PID" 2>/dev/null; STUB_PID=
 # Not blocking is also what a crashed stub produces, so require evidence that a
@@ -207,7 +208,7 @@ start_stub mismatch
 ( export STINGRAY_STATE_DIR="$TMP/s6b" STINGRAY_SHAPE3=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
          STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
   mk_watch '[{"id":"b1","type":"shell","status":"running","description":"build","command":"make"}]' \
-    | bash "$HOOK" >/dev/null 2>"$TMP/b6.err" )
+    | "$HOOK_SH" "$HOOK" >/dev/null 2>"$TMP/b6.err" )
 rc=$?
 kill "$STUB_PID" 2>/dev/null; STUB_PID=
 b6_rec=$(jq -r 'select(.shape == "unwatched") | .would_block' "$TMP/s6b/decisions.jsonl" 2>/dev/null | head -1)
@@ -222,7 +223,7 @@ rm -f "$TMP/captured-record"
 start_stub record
 ( export STINGRAY_STATE_DIR="$TMP/s7b" STINGRAY_SHADOW=1 TYPESAFE_API_KEY=dummy \
          STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
-  mk "$SYNTHETIC" | jq -c 'del(.background_tasks)' | bash "$HOOK" >/dev/null 2>"$TMP/b7.err" )
+  mk "$SYNTHETIC" | jq -c 'del(.background_tasks)' | "$HOOK_SH" "$HOOK" >/dev/null 2>"$TMP/b7.err" )
 kill "$STUB_PID" 2>/dev/null; STUB_PID=
 b7_bg=$(jq -r '[.questions[].instructions.background] | unique | join("|")' "$TMP/captured-record" 2>/dev/null | head -1)
 [ "$b7_bg" = "background list unavailable" ] \

@@ -12,6 +12,7 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="${STINGRAY_HOOK:-$HERE/../hooks/stingray.sh}"
+. "$HERE/hook-shell.sh"
 FIXTURE="${1:-}"; case "$FIXTURE" in --*|"") FIXTURE="$HERE/watch-fixture.tsv" ;; *) shift ;; esac
 
 BARE='監看|監控|盯著|盯住|輪詢|持續追蹤|poll(ing)?'
@@ -35,7 +36,7 @@ while IFS=$'\t' read -r expect origin text; do
   if [ -n "$RE" ]; then
     if printf '%s' "$text" | grep -qE "$RE"; then got=watch; else got=quiet; fi
   else
-    got=$(bash "$HOOK" --watch-test "$text")
+    got=$("$HOOK_SH" "$HOOK" --watch-test "$text")
   fi
   if [ "$got" = "$expect" ]; then
     pass=$((pass + 1))
