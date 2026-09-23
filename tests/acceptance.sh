@@ -20,7 +20,6 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/../hooks/stingray.sh"
 . "$HERE/hook-shell.sh"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
 # stdin the way the harness really sends it, measured on v2.1.278.
@@ -70,6 +69,22 @@ WATCH_PATH='已經送審了，我會盯著 src/main.rs 的 CI 結果，有動靜
 NEUTRAL='這三個檔案都改好了，測試全過。'
 OFFLINE=(TYPESAFE_API_KEY= HOME="$TMP/nohome" STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable)
 
+# Shape 3 is judged by Jev, so the cases that need it answered run against a
+# stub on this machine: CLAIMS answers "a promise to watch was made" and nothing
+# else, ZEROS answers every question with 0. Neither reads the message — whether
+# a given sentence is a promise is measured live, in watch-fixture.sh.
+start_stub() {  # start_stub <mode> <name>; sets <name>_PORT
+  local pf="$TMP/port-$2"
+  python3 "$HERE/stub_server.py" "$1" "$pf" "$TMP/captured-$2" &
+  STUB_PIDS="${STUB_PIDS:-} $!"
+  for _ in $(seq 1 50); do [ -s "$pf" ] && break; sleep 0.1; done
+  eval "$2_PORT=\$(cat "$pf")"
+}
+trap 'kill $STUB_PIDS 2>/dev/null; rm -rf "$TMP"' EXIT
+start_stub claimonly CLAIM; start_stub record ZERO
+CLAIMS=(TYPESAFE_API_KEY=dummy HOME="$TMP/nohome" STINGRAY_ENDPOINT="http://127.0.0.1:$CLAIM_PORT/v1/systemone")
+ZEROS=(TYPESAFE_API_KEY=dummy HOME="$TMP/nohome" STINGRAY_ENDPOINT="http://127.0.0.1:$ZERO_PORT/v1/systemone")
+
 echo "stingray acceptance — offline cases (hook runs on $HOOK_SH $HOOK_SH_VERSION)"
 
 # 1. Off by default: no env var set, nothing happens at all.
@@ -92,33 +107,30 @@ check "4  no key again → silent, still passes" "$(mk "$WATCH_PLAIN" '[]')" 0 "
 
 # 5. Active plus shape 3's own flag: this is the only configuration that blocks.
 check "5  active + SHAPE3 flag → block" "$(mk "$WATCH_PLAIN" '[]' sess-block-5)" 2 "nothing is running" \
-  STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
 # 6. Active WITHOUT shape 3's flag: shape 3 must not ride in on the Jev gate.
-check "6  active without SHAPE3 flag → pass" "$(mk "$WATCH_PLAIN" '[]')" 0 "-" \
-  STINGRAY=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+check "6  active without SHAPE3 flag → pass" "$(mk "$WATCH_PLAIN" '[]' sess-6)" 0 "-" \
+  STINGRAY=1 "${CLAIMS[@]}"
 
-# 7. The redaction trap. Shape 3's regex must run on the RAW message. Here the
-#    declaration shares its line with a path, which redaction drops whole — so
-#    an implementation that matched on redacted text finds nothing and fails.
-#    The line carries a target keyword (CI) because WATCH_RE now requires one;
-#    the property under test is where the regex runs, not which words it knows.
-check "7  declaration on a path line → still fires" "$(mk "$WATCH_PATH" '[]' sess-block-7)" 2 "nothing is running" \
-  STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+# 7. Retired with the regex. It required a promise written on a line carrying a
+#    path to fire, which held because the regex read the raw message. Jev reads
+#    the redacted one, where that line is gone; the loss is in the README's
+#    known limits rather than asserted here, since offline the stub cannot tell.
 
 # 8. Negative: something IS running, so the promise is kept.
 check "8  running background task → pass" \
   "$(mk "$WATCH_PLAIN" '[{"id":"a1","type":"shell","status":"running","description":"poll","command":"gh pr checks"}]')" \
-  0 "-" STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+  0 "-" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
 # 9. Missing background_tasks key must not be read as "nothing is running".
 check "9  background_tasks key absent → pass" \
-  "$(mk "$WATCH_PLAIN" '[]' | jq -c 'del(.background_tasks)')" 0 "-" \
-  STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+  "$(mk "$WATCH_PLAIN" '[]' sess-9 | jq -c 'del(.background_tasks)')" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
 # 10. No monitoring claim at all: shape 3 is silent.
-check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]')" 0 "-" \
-  STINGRAY=1 STINGRAY_SHAPE3=1 TYPESAFE_API_KEY= HOME="$TMP/nohome"
+check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]' sess-10)" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${ZEROS[@]}"
 
 # 13. Shape 3 standalone. It needs no API key and no network, so STINGRAY_SHAPE3
 #     alone must enable the hook and block — without switching on the two Jev
@@ -127,63 +139,40 @@ check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]')" 0 "-" \
 #     have handed a user who asked for the free local check the two that cost
 #     money and are not yet calibrated.
 check "13 SHAPE3 alone → block" "$(mk "$WATCH_PLAIN" '[]' sess-block-13)" 2 "nothing is running" \
-  STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+  STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
 # 14. Shadow outranks it. Recording mode never blocks, whatever else is set.
-check "14 SHADOW + SHAPE3 → record only" "$(mk "$WATCH_PLAIN" '[]')" 0 "-" \
-  STINGRAY_SHADOW=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+check "14 SHADOW + SHAPE3 → record only" "$(mk "$WATCH_PLAIN" '[]' sess-14)" 0 "-" \
+  STINGRAY_SHADOW=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
-# 15. Shape-3-only mode must never reach the Jev request path, even when a key
-#     is configured. The endpoint here is unreachable, so any attempt would
-#     print a network marker; an empty stderr proves nothing was sent. Without
-#     the guard, someone who set only STINGRAY_SHAPE3=1 but happens to have a
-#     key on disk would have this turn's message transmitted anyway.
-check "15 SHAPE3 alone + key → nothing sent" "$(mk "$NEUTRAL" '[]' sess-15)" 0 "-" \
+# 15. SHAPE3 alone now asks Jev — the check that used to be local sends the
+#     redacted final message, and with an unreachable endpoint that shows as the
+#     network marker.
+check "15 SHAPE3 alone + key → asked" "$(mk "$NEUTRAL" '[]' sess-15)" 0 "network/timeout" \
+  STINGRAY_SHAPE3=1 TYPESAFE_API_KEY=would-be-used-if-reached \
+  STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable HOME="$TMP/nohome"
+
+# 15.1 But not when there is nothing to ask. With the background list missing,
+#     shape 3 has no count to act on, so selective mode must exit before reading
+#     a key or sending anything. Without that exit a key on disk would send the
+#     message with no question to put to it.
+check "15.1 SHAPE3 alone, background unreadable → nothing sent" \
+  "$(mk "$WATCH_PLAIN" '[]' sess-15-1 | jq -c 'del(.background_tasks)')" 0 "-" \
   STINGRAY_SHAPE3=1 TYPESAFE_API_KEY=would-be-used-if-reached \
   STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable HOME="$TMP/nohome"
 
 # 16. background_tasks: null must not read as "nothing is running". has() is
 #     true for null and [ .[]? ] over null counts zero, so without a type check
 #     this blocks — the same defect as a missing key, through a different door.
-#     The no-key marker is the expected stderr here: not blocking is the claim,
-#     and reaching the key check at all proves shape 3 declined to fire.
+#     The stub answers that a promise was made, so only the type check stands
+#     between this turn and a block.
 check "16 background_tasks null → pass" \
-  "$(mk "$WATCH_PLAIN" '[]' sess-16 | jq -c '.background_tasks=null')" 0 "no key" \
-  STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+  "$(mk "$WATCH_PLAIN" '[]' sess-16 | jq -c '.background_tasks=null')" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
-# 17. Phrasings the first live shadow run showed were missed. The waiting verb
-#     takes a suffix (等著 / 等待) and the outcome word is not always one of the
-#     first four that were tried, so each of these was a real positive that
-#     shape 3 recorded nothing for.
-# One phrase per alternative that was added, so removing any single one of them
-# fails a case rather than passing on the strength of its neighbours.
-#
-# Each phrase must make its own alternative load-bearing. The first attempt at
-# the 出來 case was 「等審查結果出來我告訴你」, which contains 結果 — already an
-# outcome word — so the pattern matched on that and deleting 出來 changed
-# nothing. An ablation found it: remove one alternative, and exactly one case
-# must fail.
-# Set here, not defaulted inside the loop: ${phrase_n:-0} would inherit an
-# exported phrase_n and shift every label and session id.
-phrase_n=0
-for phrase in \
-  "沒問題，我會等著 CodeRabbit 的審查結果。" \
-  "我會等待 CodeRabbit 的結果。" \
-  "我會等到 review 完成再往下做。" \
-  "我會等 CI 跑完再回報。" \
-  "等 CodeRabbit 的回覆進來我就處理。" \
-  "等 CI 的數字出來我再判斷。" \
-  "等審查結果回來我告訴你。"
-do
-  # A counter, not $RANDOM: a test that varies between runs cannot be replayed,
-  # and this suite already has one failure nobody could reproduce. Numbered
-  # rather than sliced, because ${var:0:14} counts characters under a UTF-8
-  # locale and bytes otherwise, so the label would be cut mid-character on a
-  # runner that does not set one.
-  phrase_n=$((phrase_n + 1))
-  check "17.$phrase_n watch phrasing" "$(mk "$phrase" '[]' "sess-17-$phrase_n")" \
-    2 "nothing is running" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
-done
+# 17. Retired with the regex: one phrasing per alternative of the old pattern.
+#     Which phrasings Jev reads as a promise is measured live instead, on the
+#     labelled lines of watch-fixture.tsv.
 
 # 18. A cron doing the polling is a kept promise. session_crons went unread
 #     until a probe showed shape 3 blocking a turn whose cron was polling
@@ -194,14 +183,14 @@ check "18 cron is polling → pass" \
       hook_event_name:"Stop",stop_hook_active:false,last_assistant_message:$m,
       background_tasks:[],
       session_crons:[{id:"c1",schedule:"*/5 * * * *",prompt:"poll CodeRabbit"}]}')" \
-  0 "-" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+  0 "-" STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
-# 19. Something unrelated running is not an answer either way, so with no key
-#     the turn is left alone — today's behaviour. The correspondence judgement
-#     that resolves it lives in network.sh, where a stub can answer.
+# 19. Without a key shape 3 does not run, and says so once per session. It used
+#     to run its count locally with no key at all; it is judged by Jev now, like
+#     every other check. The correspondence judgement lives in network.sh.
 check "19 unrelated task, no key → pass" \
   "$(mk "$WATCH_PLAIN" '[{"id":"b1","type":"shell","status":"running","description":"build","command":"make"}]' sess-19)" \
-  0 "-" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+  0 "no key" STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
 
 # 11. Block budget, independent of stop_hook_active. Feed the same blocking
 #     case four times with stop_hook_active pinned false, as if the harness
@@ -210,7 +199,7 @@ echo "  -- block budget --"
 BUDGET_STATE="$TMP/budget"; rm -rf "$BUDGET_STATE"
 for i in 1 2 3 4; do
   err="$TMP/b.$i"
-  ( export STINGRAY_STATE_DIR="$BUDGET_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${OFFLINE[@]}"
+  ( export STINGRAY_STATE_DIR="$BUDGET_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
     printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | "$HOOK_SH" "$HOOK" >/dev/null 2>"$err" )
   rc=$?
   want=2; [ "$i" = 4 ] && want=0

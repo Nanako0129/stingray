@@ -1,7 +1,7 @@
 #!/bin/bash
 # Do the guards still guard?
 #
-# Two acceptance cases exist to catch one specific implementation mistake each.
+# Some acceptance cases exist to catch one specific implementation mistake each.
 # A test that cannot fail is worse than no test: it reports a guarantee nobody
 # holds. So each mistake is re-introduced into a copy of the hook, and the case
 # that exists to catch it must fail.
@@ -53,16 +53,15 @@ PY
 
 echo "stingray mutation checks"
 
-# Mutant 1 — shape 3's declaration regex run on redacted text instead of the
-# raw message. Case 7 puts the declaration on a line carrying a path, and
-# redaction drops such a line whole, so the mutant sees nothing and never fires.
-mutate "regex-on-redacted" "7 " \
-  'if [ "$shape3_on" = "1" ] && watch_claims "$last"; then' \
-  'mutant_redacted=$(printf '"'"'%s'"'"' "$last" | perl -ne '"'"'next if m{\b[\w.-]+/[\w./-]+\.[A-Za-z0-9]{1,6}\b}; print'"'"')
-if [ "$shape3_on" = "1" ] && watch_claims "$mutant_redacted"; then'
+# Mutant 1 — the background count ignored. Every promise judged made would then
+# block as if nothing were running, including one kept by a running poll. Case 8
+# has a poll running and a stub that judges the promise made, so it fails.
+mutate "running-ignored" "8 " \
+  'elif [ "$running" = "0" ]; then' \
+  'elif true; then'
 
 # Mutant 2 — a missing background_tasks key read as "nothing is running". That
-# turns shape 3 into "block whenever the regex matches"; case 9 is the only
+# turns shape 3 into "block whenever a promise is judged"; case 9 is the only
 # thing standing between that and a wrong block on ordinary turns.
 mutate "absent-key-is-empty" "9 " \
   '[ "$(printf '"'"'%s'"'"' "$input" | jq '"'"'(.background_tasks | type) == "array"'"'"' 2>/dev/null)" = "true" ]' \
@@ -75,11 +74,13 @@ mutate "null-is-empty-array" "16" \
   "[ \"\$(printf '%s' \"\$input\" | jq '(.background_tasks | type) == \"array\"' 2>/dev/null)\" = \"true\" ]" \
   "[ \"\$(printf '%s' \"\$input\" | jq 'has(\"background_tasks\")' 2>/dev/null)\" = \"true\" ]"
 
-# Mutant 4 — shape-3-only mode falls through to the Jev request path. This is
-# the regression that actually shipped once: the switch promised no request
-# while a key on disk made one anyway.
-mutate "shape3-reaches-jev" "15" \
-  '[ "$MODE" = "local" ] && [ "$lang_ask" != "1" ] && exit 0' \
+# Mutant 4 — selective mode sends with nothing to ask. With the background list
+# unreadable shape 3 has no count to act on, and the exit before the request
+# path is what keeps a key on disk from sending the message anyway. An earlier
+# form of this exit is the regression that shipped once: a switch that promised
+# no request while a key made one.
+mutate "selective-sends-anyway" "15.1" \
+  '[ "$MODE" = "selective" ] && [ "$lang_ask" != "1" ] && [ "$shape3_ask" != "1" ] && exit 0' \
   ':'
 
 echo

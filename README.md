@@ -6,7 +6,7 @@
 
 > A Claude Code `Stop` hook for turns that stop half-done. It catches three premature exit patterns — stopping without taking action, declaring an action without calling the tools to back it up, and claiming to monitor background work while nothing is running — and intercepts the exit with a nudge so the turn does not close on an empty promise.
 
-Stingrays sit motionless on sand until stepped on. This hook operates the same way: silent during normal operation, intervening only when a turn stops prematurely. Shapes 1 and 2 are language evaluations handled by [Jev](https://typesafe.ai). Shape 3 checks local process counts first; only when background work is active does it consult a model to verify correspondence.
+Stingrays sit motionless on sand until stepped on. This hook operates the same way: silent during normal operation, intervening only when a turn stops prematurely. Every judgement goes to [Jev](https://typesafe.ai): whether the turn did nothing, broke a promise, promised to watch something, or answered in the wrong language. The one thing counted locally is what is running in the background.
 
 ```
 you:     fix the timeout and run the suite
@@ -46,15 +46,15 @@ claude:  [edits the config, runs the suite]
 |---|-------|-----------|
 | 1 | `no_action` — stopped without doing anything, when it could have acted | [Jev](https://typesafe.ai) |
 | 2 | `broken_promise` — declared an action that this turn's tool calls do not account for | Jev |
-| 3 | `unwatched` — promised to monitor external progress (CI, build, PR review) | Computed locally or Jev (see below) |
+| 3 | `unwatched` — promised to monitor external progress (CI, build, PR review) | Jev, against a local count (see below) |
 | 4 | `wrong_language` — the final message is not in the language your settings ask for | Jev |
 
-Shape 3 separates into two distinct layers:
+Shape 3 asks Jev whether the final message promises to watch an external result, or says a watch it set up is running (`watch_claim`), and acts on the answer against a count it makes locally:
 
-- **Certain layer:** The assistant declared an intent to monitor background work, but running background tasks plus `session_crons` **equals 0**. This condition is settled by local arithmetic without an API key or network access. Setting `STINGRAY_SHAPE3=1` alone runs this check.
-- **Judgement layer:** Running background tasks plus `session_crons` **is greater than 0**. Counting processes cannot determine whether running jobs match what was promised. A background build satisfies a non-zero count while leaving a promised PR review unmonitored. Evaluating whether running work corresponds to the promise requires language interpretation, which is sent to Jev under the `watch_mismatch` evaluation. Without an API key, this evaluation is skipped, preserving existing behavior.
+- **Nothing running:** running background tasks plus `session_crons` **equals 0**. A promise with nothing behind it blocks on `STINGRAY_SHAPE3=1`.
+- **Something running:** the count **is greater than 0**, which does not say whether the running work is what was promised — a background build satisfies it while a promised PR review goes unwatched. Jev is asked that too (`watch_mismatch`, in the same request), and it blocks only on `STINGRAY_SHAPE3_JUDGE=1`.
 
-Earlier documentation stated both halves of shape 3 were exact values. That claim was incorrect. `background_tasks` is an exact field provided by the harness, but detecting whether an assistant declared an intent to monitor work relies on regular expression approximations.
+The count is exact; the promise is a judgement. It was a set of regular expressions until 0.3.0, and those read topic rather than commitment: a reply that merely quoted the phrase "keep an eye on" blocked itself, while "I'll keep monitoring the build" and any promise in Japanese or Korean passed unseen. On 59 labelled lines — including every sentence that once blocked a real turn by mistake — Jev scored the promises at 0.48 and above and the rest at 0.18 and below.
 
 The nudge delivered on interception is a fixed paragraph written to stderr, not a dynamically generated critique. It offers three ways out: finish the work, launch a background poll, or state what decision is blocking progress.
 
@@ -104,7 +104,7 @@ claude plugin uninstall stingray
 }
 ```
 
-`STINGRAY_SHAPE3` is the free local watch check and needs no account, key or network. `STINGRAY_LANG` is the language check, judged by Jev, so it needs an API key and sends the redacted final message. With an API key, start from `"STINGRAY_SHADOW": "1"` instead, which calls Jev and logs decision records but never blocks turn completion. Restart Claude Code after changing the file.
+`STINGRAY_SHAPE3` is the watch check and `STINGRAY_LANG` the language check. Both are judged by Jev, so both need an API key and send the redacted final message; there is no keyless mode. With an API key, start from `"STINGRAY_SHADOW": "1"` instead, which calls Jev and logs decision records but never blocks turn completion. Restart Claude Code after changing the file.
 
 > **Why not `export` in your shell:** Claude Code reads `settings.json` itself when it starts, so every session gets the switches however it was launched. A shell `export` reaches only sessions started from a shell opened after the line was added. A terminal tab left open from before, the desktop app and IDE extensions all miss it, and the hook then does nothing without saying so. This was hit in practice: a tab open for eight days kept launching sessions with none of the switches set.
 
@@ -152,12 +152,12 @@ No SDK or additional runtime is required.
 
 ## API key
 
-Shapes 1 and 2, and the language check, call TypeSafe System One (`jev-1.13.0`). Shape 3's **certain** case — a promise with no active tasks or scheduled crons — requires neither an API key nor network access. The correspondence judgement requires both, as it asks the model whether running jobs match what was promised.
+Every check calls TypeSafe System One (`jev-1.13.0`): shapes 1 and 2, shape 3's promise and correspondence judgements, and the language check.
 
 1. Obtain a key at <https://typesafe.ai>.
 2. Place it in `~/.config/typesafe/api_key` (`chmod 600`), or export `TYPESAFE_API_KEY`. The configuration file is preferred because environment variables are exposed to child processes.
 
-**Without an API key, stingray leaves shapes 1 and 2 and the language check inactive.** It outputs `(stingray: unavailable — no key; Jev checks skipped)` once per session while keeping shape 3's local check operational. It does not fail silently.
+**Without an API key, stingray does nothing.** It outputs `(stingray: unavailable — no key; Jev checks skipped)` once per session rather than failing silently.
 
 ## Switches (off by default)
 
@@ -166,22 +166,22 @@ Each switch controls evaluation and interception behavior. By default, all switc
 Precedence and execution rules:
 
 1. **Unset (default):** Exits 0 immediately. Nothing runs, nothing is sent, and no state files are created.
-2. **`STINGRAY_SHAPE3=1` (local arithmetic check):** Intercepts turn completion on shape 3's certain case alone (promised to monitor work, but active tasks plus scheduled crons equal 0). Requires no account, no key, and no network requests.
+2. **`STINGRAY_SHAPE3=1` (watch check):** Blocks turn completion when Jev judges the final message to promise a watch and nothing is running or scheduled. Needs an API key and sends the redacted final message. Does not ask shapes 1 and 2.
 3. **`STINGRAY_SHADOW=1` (shadow mode, highest precedence):** Evaluates shapes 1 and 2 via Jev and writes decision records to disk, but **never blocks turn completion**. Overrides blocking behavior from both `STINGRAY=1` and `STINGRAY_SHAPE3=1`. Start here once you configure an API key.
 4. **`STINGRAY=1` (active mode):** Blocks turn completion on shapes 1 and 2 when Jev flags unfulfilled promises or missing actions.
 5. **`STINGRAY_LANG=1` (language check):** Blocks turn completion when Jev judges the final message not to be in the configured `language`. Needs an API key and sends the redacted final message with one question; with `STINGRAY=1` on too, it rides in the same request. It does not turn shape 3 on, and does not ask shapes 1 and 2.
-6. **`STINGRAY_SHAPE3_JUDGE=1` (shape 3 correspondence judgement):** Allows the model evaluation for shape 3 to block turn completion when background work is running but does not match the promise. Requires `STINGRAY_SHAPE3=1` and non-shadow mode. Defaults to off even when shape 3 is active, because its threshold is borrowed without dedicated offline measurement.
+6. **`STINGRAY_SHAPE3_JUDGE=1` (shape 3 correspondence judgement):** Allows shape 3 to block turn completion when background work is running but Jev judges it not to be what was promised. Requires `STINGRAY_SHAPE3=1` and non-shadow mode. Defaults to off even when shape 3 is active, because its threshold is borrowed without dedicated offline measurement.
 
 | Variable | Effect |
 |---|---|
 | *(nothing set)* | **Default.** Hook exits immediately (code 0). Nothing runs, nothing is sent, no state files created. |
 | `STINGRAY_SHADOW=1` | Calls Jev, logs decision records, **never blocks turn completion**. Outranks `STINGRAY=1`, `STINGRAY_SHAPE3=1` and `STINGRAY_LANG=1`. Start here. |
 | `STINGRAY=1` | Blocks turn completion on shapes 1 and 2 via Jev. |
-| `STINGRAY_SHAPE3=1` | Blocks turn completion on shape 3's **certain** case (promised to watch work, but active background tasks + scheduled crons == 0). Needs no key and no network. Outranked by `STINGRAY_SHADOW=1`. |
+| `STINGRAY_SHAPE3=1` | Blocks turn completion when Jev judges a promise to watch and nothing is running or scheduled. Needs a key; sends the redacted final message. Outranked by `STINGRAY_SHADOW=1`. |
 | `STINGRAY_LANG=1` | Blocks turn completion on shape 4, a final message Jev judges not to be in the configured `language`. Needs a key; sends the redacted final message. Outranked by `STINGRAY_SHADOW=1`, which records it instead. |
-| `STINGRAY_SHAPE3_JUDGE=1` | Allows shape 3's **correspondence judgement** to block turn completion (active tasks > 0, but model judges they do not match the promise). Off by default; requires `STINGRAY_SHAPE3=1` and `STINGRAY=1`. In shape-3-only mode the hook exits before the request path, so this judgement never runs there. Logs decisions regardless of switch state. |
+| `STINGRAY_SHAPE3_JUDGE=1` | Allows shape 3's **correspondence judgement** to block turn completion (active tasks > 0, but model judges they do not match the promise). Off by default; requires `STINGRAY_SHAPE3=1`. Logs decisions regardless of switch state. |
 
-The minimal working configuration is `STINGRAY_SHAPE3=1` alone: no external account, no API key, and no outbound requests. It reads the local payload and runs regular expressions against the message, so execution overhead is non-zero, but isolated from network dependencies.
+The smallest configuration is `STINGRAY_SHAPE3=1` alone: one question per turn, about whether the reply promised a watch. When something is running in the background, a second one (`watch_mismatch`) rides in the same request, carrying the tool list and background statuses as well, and is logged even while `STINGRAY_SHAPE3_JUDGE` is off.
 
 Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
 
@@ -224,7 +224,7 @@ Across 48 captured payloads from real turns, all eight tracked leak categories r
 
 The **substance of the work survives transmission**. Reading those payloads reveals that a quota window was measured at 80% while 47 samples in the same window reported 77%, that a 60-second blind poll was running, and that six recovery files dated 2026-08-22 were present in a directory. Identifiers were masked; the operational task, the error encountered, and the planned resolution remained legible.
 
-TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability low enough that a leak leaves no practical financial remedy. Read the current terms rather than this summary of them — the terms change and the summary will not. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. No outbound request is made by default, or with `STINGRAY_SHAPE3=1` alone, which exits before the request path. `STINGRAY_LANG=1` sends the redacted final message, like shapes 1 and 2.
+TypeSafe processes requests in the United States and does not publish a retention limit. Its Master Customer Agreement caps liability low enough that a leak leaves no practical financial remedy. Read the current terms rather than this summary of them — the terms change and the summary will not. Review `payload-audit.txt` before deciding to enable outbound requests. `STINGRAY_SHADOW=1` transmits data over the wire. No outbound request is made by default. Every switch sends the redacted final message once it has something to ask about it.
 
 ## Calibration
 
@@ -244,15 +244,16 @@ High precision paired with low recall fits this design: an erroneous nudge waste
 1. Labels systematically undercount positive cases: users only sometimes type "keep going", often answering directly or continuing manually.
 2. For the two false positives observed at τ=0.5, manual review showed one was a labeling error rather than an incorrect prediction; 10 of 11 positive flags were accurate under human review.
 3. The offline benchmark ran through a *copy* of the redactor that masked a hardcoded project list, whereas the shipped version derives names dynamically. The 81.8% figure was measured on a close neighbor of the shipped code, not on the exact implementation.
+4. It was measured on requests that batched several turns, each asked shapes 1 and 2 and an earlier shape 3 question. The shipped request carries one turn and only the questions its switches and background call for. Measured on 6 inputs, twice each, with and without `watch_claim` and `wrong_language` alongside: the mean of either score moved by at most 0.04, the same as the most the identical request moved when sent twice (0.04), and no input moved across τ. Six inputs show no large effect, not no effect.
 
-**Shape 3 correspondence has never been evaluated offline.** Its threshold is borrowed from the other two questions without independent validation.
+**Shape 3's promise judgement was measured on 59 labelled lines** — the 44 of `tests/watch-fixture.tsv` and 15 synthetic — by sending the question to Jev directly. `tests/watch-fixture.sh` re-runs the 44 fixture lines, not the 15, live through the shipped hook: at τ = 0.5 it agrees on 42 of the 43 it scores. The 44th names a file, so redaction removes it and it is never asked (see Known limits). **Its correspondence judgement has never been evaluated.** Its threshold is borrowed from the other questions without independent validation.
 
 Two independent bars govern activation before either evaluator may block turn completion:
 
 | Judge | Bar before blocking turn completion |
 |---|---|
 | Shapes 1 and 2 (`STINGRAY=1`) | ≥ 40 shadow records, ≥ 70% precision on manual inspection, ≤ 3 false nudges per 100 stop points, τ placed in the empty band between score clusters with derivation documented |
-| Shape 3, certain case (`STINGRAY_SHAPE3=1`) | None — pure arithmetic, no threshold to calibrate |
+| Shape 3, promise (`STINGRAY_SHAPE3=1`) | None set. Measured on 59 labelled lines, and blocks from the first turn — see known limits |
 | Shape 3, correspondence (`STINGRAY_SHAPE3_JUDGE=1`) | ≥ 20 shadow records, ≥ 70% precision on manual inspection |
 | Shape 4, language (`STINGRAY_LANG=1`) | None set. Measured only on 20 synthetic replies, and blocks from the first turn — see known limits |
 
@@ -272,7 +273,7 @@ The 1.0-second budget applies to shadow mode as well: shadow mode executes the s
 
 This budget covers healthy endpoints. When an endpoint hangs, execution waits until `STINGRAY_TIMEOUT`: **measured at 6.15s with the default 6-second timeout** against an unresponsive stub server. Lower `STINGRAY_TIMEOUT` if that delay is unacceptable during outages.
 
-With `STINGRAY_LANG=1` alone, every turn that has prose to judge now makes this round trip too, where it used to make none. A request carrying only the language question took 0.68–1.03s across 12 calls, measured by calling the endpoint directly with the same request shape rather than at hook position. With `STINGRAY=1` on as well, the language question rides in the request shapes 1 and 2 already make, adding no round trip.
+With `STINGRAY_SHAPE3=1` or `STINGRAY_LANG=1` alone, every turn with something to ask about makes this round trip too, where until 0.2.0 or 0.3.0 respectively it made none. A request carrying one question took 0.68–1.03s across 12 calls, measured by calling the endpoint directly with the same request shape rather than at hook position; through the shipped hook, 0.70–0.99s. With several switches on, their questions share one request, adding no round trip.
 
 ## Loop protection
 
@@ -284,7 +285,9 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 ## Known limits
 
 - Criteria in `questions.json` are written in Traditional Chinese, matching the corpus used for the 81.8% benchmark. English criteria have zero live measurements; replacing them voids that accuracy figure. Working in English requires rewriting criteria and recalibrating thresholds.
-- Shape 3 accuracy cannot be measured offline: `background_tasks` exists only at hook execution and cannot be reconstructed from saved transcripts. Test suites verify logic on synthetic inputs, but production precision depends on your shadow logs.
+- Shape 3's correspondence cannot be measured offline: `background_tasks` exists only at hook execution and cannot be reconstructed from saved transcripts. Its promise judgement can, and is — see `tests/watch-fixture.sh`.
+- Shape 3 cannot see a promise written on the same line as a file path. Redaction drops that line before Jev reads the message, and when nothing else is left the turn is not asked about at all. Measured through the shipped hook: "我會盯著 src/main.rs 的 CI 結果" was not asked about, while the same promise with the path on its own line was blocked at 0.97. The regular expression it replaced read the raw message and did see it; this is the one thing given up.
+- "keep an eye on the review" scores 0.48 and passes. Without a subject it reads as well as an instruction to the user.
 - Redaction leaves the substance of the work visible, as detailed in the privacy section.
 - Shape 4 has been measured on synthetic replies only, 20 of them, and no real transcript was sent to measure it. zh-TW replies scored 0.10–0.23, including one made of identifiers and one quoting English; English, Japanese, Korean and Russian replies 0.97–0.98; English quoting Chinese terms 0.77; the wrong target in either direction 0.95–0.98. τ is the shared 0.5. How it scores on your own writing is what `decisions.jsonl` will show — its records are `wrong_language` and `language_ok`.
 - Shape 4 does not reliably tell Simplified from Traditional Chinese: a Simplified reply against a zh-TW setting scored 0.29.
@@ -316,10 +319,12 @@ stingray/
 │   ├── hooks.json               # Stop hook registration, explicit timeout
 │   ├── stingray.sh              # the whole thing: shapes, redaction, fail-open paths, nudge
 │   └── turn-tools.jq            # slice one turn out of the transcript
-├── questions.json               # the three Jev criteria — the classifier's contract, pinned to jev-1.13.0
+├── questions.json               # the five Jev questions — the classifier's contract, pinned to jev-1.13.0
 └── tests/
-    ├── acceptance.sh            # drives the real hook offline: no key, no network
+    ├── acceptance.sh            # drives the real hook against local stubs; no key, no network
     ├── network.sh               # fail-open paths; --live also hits the real endpoint
+    ├── watch-fixture.sh         # live calibration of shape 3 on watch-fixture.tsv; needs a key
+    ├── hook-shell.sh            # runs the hook on the interpreter hooks.json ships
     ├── mutants.sh               # re-derives that each guard still fails when broken
     ├── show-payload.sh          # capture what would really be sent, locally
     ├── stub_server.py           # local stand-in for the endpoint; --list-modes lists its modes
@@ -329,19 +334,20 @@ stingray/
 ## Tests
 
 ```bash
-./tests/acceptance.sh        # drives the real hook offline: no key, no network
+./tests/acceptance.sh        # drives the real hook against local stubs: no key, no network
 ./tests/network.sh           # fail-open paths against a local stub server
 ./tests/network.sh --live    # also the real endpoint, with synthetic text only
 ./tests/mutants.sh           # do the guards still guard?
 ./tests/show-payload.sh 50   # capture what would really be sent, locally
+./tests/watch-fixture.sh     # shape 3 against the real endpoint on labelled lines; needs a key
 ```
 
 Tests drive the actual hook with real stdin and assert on exit codes and stderr. No test inspects source code directly. Live tests send synthetic text to avoid leaking conversation data.
 
 Two test cases guard against specific implementation errors, verified by `mutants.sh`:
 
-- **Case 7:** Shape 3 regex must execute on unredacted text. Its declaration shares a line with a file path; redaction removes lines containing paths entirely. (An earlier test used a URL, which was replaced in-place and failed to detect the bug).
-- **Case 9:** A missing `background_tasks` key must not evaluate as "nothing is running", which would cause shape 3 to trigger whenever the regex matches.
+- **Case 8:** With a poll running, a promise judged made must not block. Ignoring the count would block every promise as if nothing ran.
+- **Case 9:** A missing `background_tasks` key must not evaluate as "nothing is running", which would cause shape 3 to block whenever a promise is judged.
 
 ## Support
 

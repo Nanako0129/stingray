@@ -180,9 +180,9 @@ kill "$STUB_PID" 2>/dev/null; STUB_PID=
   || say no "B4 unrelated running work → exit $rc; stderr: $(head -c 140 "$TMP/b4.err")"
 
 # ── B5. The same shape with the judgement going the other way must not block.
-#        Only watch_mismatch scores high under this stub, so a pass here proves
-#        nothing else is quietly doing the blocking.
-start_stub record
+#        Under this stub a promise is judged made and the running work judged to
+#        correspond, so a pass here proves nothing else is quietly blocking.
+start_stub claimonly
 ( export STINGRAY_STATE_DIR="$TMP/s5b" STINGRAY_SHAPE3=1 STINGRAY=1 TYPESAFE_API_KEY=dummy \
          STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
   mk_watch '[{"id":"b1","type":"shell","status":"running","description":"poll CodeRabbit","command":"gh pr checks"}]' \
@@ -270,14 +270,15 @@ l2=$(jq -c '{q: (.questions | keys), i: (.questions.wrong_language.instructions 
   && say ok "L2 LANG alone → one question, carrying final_text and the language name only" \
   || say no "L2 LANG alone → exit $rc, sent: ${l2:-<no request captured>}"
 
-# L3. With shapes 1 and 2 on as well, all three go in one request — and the
+# L3. With shapes 1 and 2 on as well, everything goes in one request — shape 3's
+#     watch_claim too, since active mode evaluates it for its records — and the
 #     language stays on its own question. On no_action it would change the input
 #     the 81.8% was measured on.
 rm -f "$TMP/captured-record"; start_stub record
 run_lang "$TMP/l3" "$(mkl "$LZH" net-l3)" STINGRAY=1 STINGRAY_LANG=1; rc=$?
 kill "$STUB_PID" 2>/dev/null; STUB_PID=
 l3=$(jq -c '{q: (.questions | keys), na: (.questions.no_action.instructions | has("language"))}' "$TMP/captured-record" 2>/dev/null | head -1)
-[ "$l3" = '{"q":["broken_promise","no_action","wrong_language"],"na":false}' ] \
+[ "$l3" = '{"q":["broken_promise","no_action","watch_claim","wrong_language"],"na":false}' ] \
   && say ok "L3 STINGRAY + LANG → one request, language only on wrong_language" \
   || say no "L3 STINGRAY + LANG → sent: ${l3:-<no request captured>}"
 

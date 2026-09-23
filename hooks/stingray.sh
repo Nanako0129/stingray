@@ -6,11 +6,7 @@
 #   1 no_action        stopped without doing anything          -> judged by Jev
 #   2 broken_promise   declared an action, tools don't cover it -> judged by Jev
 #   3 unwatched        promised to watch CI/review, nothing is polling
-#                                                              -> computed, no Jev
-#
-# Shape 3 is deliberately NOT sent to a model: both halves are exact values (a
-# declaration regex and the hook's own background_tasks field). Turning a
-# certainty into a probability is a downgrade.
+#                      -> the promise judged by Jev, the background counted here
 #
 # Stop hook contract, measured on Claude Code v2.1.278 (2026-09-21), not read
 # off the docs — the docs are wrong on three counts:
@@ -45,151 +41,35 @@ STATE_DIR="${STINGRAY_STATE_DIR:-${XDG_STATE_HOME:-${HOME:-}/.local/state}/sting
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 
-# ── What counts as a claim to watch something ────────────────────────────────
+# ── Whether a reply promises to watch something ──────────────────────────────
 #
-# Every count below is over whole assistant messages evaluated the way this
-# function evaluates them, line by line: 2,527 messages from 60 transcripts
-# across 54 sessions. Two earlier versions of this comment were wrong about the
-# unit. The first counted 31,088, which was the corpus split on newlines. The
-# second counted messages but measured them with the newlines replaced by
-# spaces, which lets a verb on one line reach a target on the next — something
-# grep cannot do, since it is line-oriented and ERE cannot cross a newline.
-# Both overstated the shape. These figures come from the real semantics,
-# cross-checked against --watch-test on 41 cases with no disagreement.
+# Jev decides, through the watch_claim question in questions.json. The hook no
+# longer reads the message itself: it counts what is running in the background,
+# which it can do exactly, and asks whether the reply promised to watch
+# something, which it cannot.
 #
-# A claim needs a verb AND a thing being watched. The verbs alone matched topic,
-# not commitment: the shipped regex before this change matched 183 messages, 142
-# of them on a line whose verb had no narrowing at all, and only 3 of those 142
-# carried any first-person marker. The hits included a CV line ("我做過跨 13 個節點的監控
-# 平台"), a quoted customer requirement, and a release announcement whose subject
-# was a poller that used to hang — that last one blocked a real turn with nothing
-# running. Requiring a target takes 183 messages to 52.
+# This replaced a family of regular expressions — verbs, targets, possessives,
+# aspect markers — rebuilt five times in one release and still wrong in both
+# directions. It read topic, not commitment, so a reply quoting the phrase
+# "keep an eye on" blocked its own turn, and it knew a handful of Chinese verbs
+# and three English phrases, so "I'll keep monitoring the build" and any
+# promise in Japanese or Korean passed unseen.
 #
-# The target requirement alone dropped 131 of those 183, and most of a sample
-# was genuine: "第 5 輪輪詢中（`bx22jpak0`）。", "監看還架著。". They name no
-# target, so widening cannot reach them — 90 recovers 5 of the 131 and starts
-# admitting fixture lines that must stay quiet.
+# Measured before adopting it, with the question worded as in questions.json,
+# on 59 labelled lines: the 44 of tests/watch-fixture.tsv, already public, among
+# them every sentence that once blocked a real turn by mistake, and 15 synthetic
+# ones. The lines that promise a watch scored 0.48 and above; the lines that do
+# not, 0.18 and below. At τ = 0.5 one line is missed — "keep an eye on the
+# review", which has no subject and reads as well as an instruction to the user.
+# A first wording asked only about promises and scored "CI 的監看還掛著" at 0.24;
+# it now also covers a reply saying a watch it set up is running, which is the
+# same claim to shape 3, and that line scores 0.91 while "那是同一輪 CI 的第二個
+# 監看，結果與剛才回報的相同" stays at 0.12.
 #
-# WATCH_ASPECT recovers them a different way: a verb followed within 6 characters
-# by an aspect marker — 中, 在跑, 在背景, 架著, 掛著, 掛上, 開著, 還在, 仍在 — is
-# reporting an activity, whatever else is in the sentence, so it needs no target.
-# It takes the rule from 52 messages to 102, recovering 50 of the 131. All 51
-# lines it alone matches are of one form, "第 N 輪輪詢中（`b8v4feomf`）", and it
-# adds nothing the old bare-verb rule did not already match, so it cannot be
-# looser than what it replaces. It leaves the ten sentences that started this —
-# the eight nominalisations, "無限迴圈…根本未進入輪詢", "pgrep 無 poll 程序" —
-# all quiet.
-#
-# It is a whitelist, and the objection that killed the noun blocklist applies:
-# whitelists accrete too. The argument for this one is that Chinese aspect
-# marking is a closed set while nouns are open. That is a claim about the
-# language, not a measurement, and it is the part of this rule most likely to
-# need a word added later. It needed one immediately: the list as first written
-# had 掛著 and not 掛上, so "那支 PR 的輪詢已經掛上了" came out quiet. Adding it
-# matched no further message in the corpus, which is the test a new word has to
-# pass — a word that widens the rule on real text is a different proposal and
-# belongs with its own measurement.
-#
-# Neither side of that trade generalises. 176 of the old 183 hits and 51 of the
-# new 52 come from a single session out of 54 — an auto-loop that reports polling
-# status every turn. What this corpus establishes is how the rules behave on that
-# habit, not on everyone.
-#
-# The window is 20. Message hits by window: 20 gives 52, 30 gives 53, 40 gives
-# 55, 90 gives 57 — and every width from 30 up also matches a fixture line that
-# must stay quiet. So 20 is where the curve stops paying. It is wide enough for
-# the real reason messages need width, a commit sha or a URL between the verb
-# and its object, as in "輪詢最新 head（7758156）的自動審查結果".
-#
-# `poll` is bracketed by non-identifier characters so a filename does not read
-# as a promise: poll-coderabbit.sh matched the bare form on its own name.
-#
-# Reverse order — target first, then verb — catches the progressive form the
-# forward shape cannot see: "Codex 輪詢中", "監看已在背景掛上". Like everything
-# else here its evidence is one session, so it is kept because the possessive
-# rule makes it cheap, not because the corpus settles it.
-#
-# The reverse order also reads "CI 的輪詢器壞了" as a promise, because there the
-# verb is a noun. A possessive or demonstrative immediately before the verb marks
-# that case: on eight constructed sentences of the shape it catches 8 of 8, and
-# it removes no real hit from the corpus. (On the line-split corpus it appeared
-# to cost 2; that was an artefact of the same unit error.)
-#
-# A nominalised watch that is genuinely in progress — "CI 的監看還掛著" — is
-# refused by the possessive rule and reached by WATCH_ASPECT instead, which is
-# what the aspect marker is for. Those sentences are in tests/watch-fixture.tsv
-# as `nom-cost`, expected watch, and they fail if either half is removed.
-#
-# A possessive or a demonstrative immediately before the verb marks it as a noun
-# — "CI 的輪詢器壞了" is about a poller, not a promise to watch one. That refusal
-# is written into WATCH_FWD and WATCH_REV as a character class rather than as a
-# second pattern applied afterwards, and the difference is not stylistic. Three
-# defects on this branch were the same mistake: an exclusion evaluated separately
-# withdrew a hit it was not describing.
-#
-#   whole-text greps   "Codex 輪詢中" cancelled by "CI 的輪詢器壞了" on another
-#                      line, in either order
-#   compared by line   "那支輪詢器剛修好，我會盯著 CI 的結果" cancelled inside
-#                      one line, the promise killed by the clause before it
-#   inside the match   cannot happen: there is nothing to withdraw
-#
-# All three were found by the session reviewing this branch, the last two in
-# sentences it had written about this branch. The invariant they converge on is
-# that an exclusion may only refuse the hit it describes, and the only way to
-# hold it with grep is to make the refusal part of the hit.
-#
-# It also settles the case that started this: "CI 的輪詢器壞了" and "這個 PR 的
-# 輪詢邏輯有 bug" on one line, where 輪詢 at the end of the first reaches PR at
-# the start of the second. Both verbs carry a possessive, so neither is a hit,
-# and there is no combination left to make. Measured: 99 corpus messages against
-# 102 under the withdrawal version, and the three it drops are one sentence
-# repeated — "那是同一輪 CI 的第二個監看，結果與剛才回報的相同" — a completed
-# watch reported in the past tense.
-#
-# What no arrangement of this reaches: quoting a promise reads as making one.
-# "他說丟掉的那類：第 5 輪輪詢中、監看還架著" matches, correctly by the rule and
-# wrongly by intent, and telling those apart is semantics. Whoever maintains this
-# regex gets blocked by it while discussing it. redact_text does not run before
-# shape 3, so examples inside code fences take part in the match as well.
-#
-# "Round 2 輪詢中", "輪詢在背景" and "輪詢中" were the cost of the target
-# requirement and are recovered by the aspect branch; they stay in the fixture
-# under `short` so that removing that branch fails rather than quietly shrinks
-# the rule. What remains uncovered is a targetless promise with no aspect marker
-# either — "推送、重建、輪詢第十二輪。" — and nothing here reaches it.
-#
-# Last, the honest limit on all of the above. 176 of the old 183 hits and 51 of
-# the new 102 come from one session out of 54, an auto-loop reporting poll status
-# every turn. Outside it the whole corpus holds 7 hits under the old rule and 1
-# under this one. Every comparison in this comment is therefore a statement about
-# that session's writing, and the numbers should not be read as settling how any
-# of these shapes behave in general.
-WATCH_TARGET='CI|ci|review|Review|審查|PR|pull request|CodeRabbit|Copilot|Codex|build|建置|部署|deploy|workflow|job|pipeline'
-WATCH_VERB='監看|監控|盯著|盯住|輪詢|持續追蹤|(^|[^A-Za-z0-9_-])poll(ing)?([^A-Za-z0-9_-]|$)'
-# Not a possessive or a demonstrative, as the one or two characters right before
-# the verb. Spelled into the match so the refusal can never be applied to some
-# other hit afterwards.
-#
-# 支, 段 and 個 count only after 那 or 這. As first written the class refused all
-# three outright, which also refused them as measure words: "我開了三個監看盯 CI"
-# and "每支輪詢都會盯 PR" came out quiet. Measured on the corpus, the bare form
-# guarded against 0 demonstratives (那／這 + 支段個 + verb never occurs) while it
-# could refuse 5 lines, 2 of them genuine claims. Found by the session reviewing
-# the previous release.
-WATCH_PRE='([^。的支段個]|[^那這。][支段個])'
-WATCH_FWD="(^|${WATCH_PRE})(${WATCH_VERB})[^。]{0,20}(${WATCH_TARGET})|等(著|待|到)? ?(CI|ci|review|Review|審查|CodeRabbit|Copilot|Codex)[^。]{0,12}(回來|回覆|完成|跑完|出來|結果|綠)|keep (an eye on|watching|polling)|I.?ll (monitor|watch|poll)"
-WATCH_REV="(${WATCH_TARGET})(${WATCH_VERB})|(${WATCH_TARGET})[^。]{0,19}${WATCH_PRE}(${WATCH_VERB})"
-WATCH_ASPECT="(${WATCH_VERB})[^。]{0,6}(中|在跑|在背景|架著|掛著|掛上|開著|還在|仍在)"
-
-# The one place that decides. tests/watch-fixture.sh drives this through
-# --watch-test rather than rebuilding the condition, because a second copy of a
-# decision is how a change gets tested against its own mirror image.
-watch_claims() {  # watch_claims <text>; 0 = claims to watch something
-  printf '%s' "$1" | grep -qE "$WATCH_ASPECT" && return 0
-  printf '%s' "$1" | grep -qE "$WATCH_FWD" && return 0
-  printf '%s' "$1" | grep -qE "$WATCH_REV" && return 0
-  return 1
-}
+# What Jev sees is the redacted message, and redaction drops a whole line that
+# carries a path. A promise written on the same line as a file path is therefore
+# gone before it is judged. The regex read the raw message and saw it; that is
+# the one thing given up here, and it is in the README's known limits.
 
 # ── Whether a reply is in the configured language ────────────────────────────
 #
@@ -271,37 +151,28 @@ lang_name() {  # lang_name <setting>; a name Jev reads more reliably than a code
   esac
 }
 
-# Fixture entry point. Answers for one line and exits; reads no stdin, writes no
-# state, makes no request.
-if [ "${1:-}" = "--watch-test" ]; then
-  watch_claims "${2:-}" && { echo watch; exit 0; }
-  echo quiet; exit 0
-fi
 
 
 # ── Mode. Off by default: with no environment variable set, nothing happens. ──
 #
-# Three switches, not one scale. Shape 3 needs no API key and no network, so it
-# is usable entirely on its own — STINGRAY_SHAPE3=1 alone enables the hook and
-# blocks on shape 3 without turning on the two Jev judgements, which have their
-# own calibration bar to clear. Folding it into MODE=active would hand someone
-# who asked for the free local check the two that cost money and are not yet
-# calibrated.
+# Separate switches, not one scale. STINGRAY_SHAPE3 and STINGRAY_LANG each turn
+# on one check without the two shapes-1-and-2 judgements, which have their own
+# calibration bar to clear; that is the "selective" mode. Every check is judged
+# by Jev now, so every mode but "off" needs a key and sends the redacted final
+# message — shape 3 was the last local one.
 #
-# STINGRAY_SHADOW wins over both: shadow means record, never block.
+# STINGRAY_SHADOW wins over all of them: shadow means record, never block.
 #
-# STINGRAY_LANG is the second local check and shares the mode: with either local
-# switch alone, nothing leaves the machine. The mode was called "shape3" until
-# the language check joined it; decision records written before carry that name.
+# The selective mode was named "shape3" through v0.1.2 and "local" in v0.1.3 and
+# v0.2.0; decision records written by those versions carry those names.
 MODE="off"
-{ [ "${STINGRAY_SHAPE3:-}" = "1" ] || [ "${STINGRAY_LANG:-}" = "1" ]; } && MODE="local"
+{ [ "${STINGRAY_SHAPE3:-}" = "1" ] || [ "${STINGRAY_LANG:-}" = "1" ]; } && MODE="selective"
 [ "${STINGRAY:-}" = "1" ] && MODE="active"
 [ "${STINGRAY_SHADOW:-}" = "1" ] && MODE="shadow"
 [ "$MODE" = "off" ] && exit 0
 
-# Shape 3 may block in active (with its own flag) or in shape3-only mode. This
-# covers only the certain case: a promise with nothing running or scheduled
-# behind it, which arithmetic settles.
+# Shape 3 may block with its own switch, in selective or active mode, when a
+# promise to watch has nothing running or scheduled behind it.
 shape3_blocks=0
 [ "${STINGRAY_SHAPE3:-}" = "1" ] && [ "$MODE" != "shadow" ] && shape3_blocks=1
 # Shape 3 is evaluated — recorded, not necessarily blocking — with its own switch
@@ -313,10 +184,9 @@ lang_blocks=0
 [ "${STINGRAY_LANG:-}" = "1" ] && [ "$MODE" != "shadow" ] && lang_blocks=1
 
 # The correspondence judgement is a separate switch, off even when shape 3 is
-# blocking. It is a model answer with a borrowed threshold and no measurement
-# behind it, and shape 3's whole claim was that it blocks only when the answer
-# is certain. Folding it in would have removed that quietly. It records from the
-# first turn; it may block once the bar in the README is met.
+# blocking: when something IS running, whether it is the thing promised is a
+# second judgement, with a borrowed threshold and no measurement behind it. It
+# records from the first turn; it may block once the bar in the README is met.
 watch_judge_blocks=0
 [ "${STINGRAY_SHAPE3_JUDGE:-}" = "1" ] && [ "$shape3_blocks" = "1" ] && watch_judge_blocks=1
 # The Jev judgements may block only in active mode.
@@ -418,77 +288,41 @@ if [ "${STINGRAY_LANG:-}" = "1" ]; then
 fi
 [ "$lang_ask" = "1" ] && want_name=$(lang_name "$want")
 
-# ── Shape 3: computed locally. No model call, no API key required. ────────────
-# The declaration regex runs on the RAW message, before redaction and before
-# truncation. Redaction exists only to shrink what leaves the machine, and it
-# drops whole lines carrying a path or a filename — and a promise to watch
-# something routinely shares its line with one ("I'll watch the CI on
-# src/main.rs"). Measured, not assumed: a URL alone does NOT drop the line,
-# because URLs are replaced in place; a path does. tests/acceptance.sh case 7
-# uses a path for exactly that reason — a URL there would pass even against an
-# implementation that (wrongly) matched on redacted text.
-# The waiting verb takes a suffix in real Chinese — 等著, 等待, 等到 — and the
-# outcome word is not always one of the first four tried. Both gaps showed up on
-# the very first live shadow run, on "我會等著 CodeRabbit 的審查結果" with nothing
-# running in the background: shape 3 should have recorded it and did not.
-# Broadening costs almost nothing, because the keyword list after the verb does
-# the narrowing. Measured across 19,450 assistant messages from real
-# transcripts: the old pattern matched 1,690 lines, the new one 1,699 — nine
-# more, which is 0.5% more than the old pattern caught and 0.05% of all
-# messages. Both numbers, because "+0.5%" on its own reads as a share of the
-# 19,450 and would overstate it tenfold.
-watch_claimed=0
-watch_unresolved=0
-if [ "$shape3_on" = "1" ] && watch_claims "$last"; then
-  watch_claimed=1
-  # Require an actual array. Neither a missing key nor a null may be read as
-  # "nothing is running": has() is true for null, and [ .[]? ] over null counts
-  # zero, so either would degrade shape 3 into "block whenever the regex
-  # matches". A positive-case test still passes under that defect — it surfaces
-  # only as a wrong block on ordinary turns, which is why mutants.sh covers it.
-  if [ "$(printf '%s' "$input" | jq '(.background_tasks | type) == "array"' 2>/dev/null)" = "true" ]; then
-    # Count scheduled work too. A cron polling the thing it promised to watch is
-    # a kept promise, and session_crons went unread until a probe showed shape 3
-    # blocking a turn whose cron was doing exactly the polling it asked for.
-    running=$(printf '%s' "$input" | jq '
-      ([.background_tasks[]? | select(.status=="running")] | length)
-      + ((.session_crons // []) | length)' 2>/dev/null)
-    case "$running" in ''|*[!0-9]*) running=-1 ;; esac
-    if [ "$running" = "0" ]; then
-      # Nothing at all is running or scheduled. No judgement is needed to know
-      # the promise has no mechanism behind it, so this stays arithmetic and
-      # needs neither a key nor the network.
-      if [ "$shape3_blocks" = "1" ]; then
-        log unwatched 1 true
-        nudge "it promises to watch an external result, but nothing is running in the background"
-      fi
-      log unwatched 1 false
-    elif [ "$running" -gt 0 ]; then
-      # Something is running — but is it watching the thing that was promised?
-      # Counting cannot answer that: a build running while the turn promised to
-      # follow a PR review satisfies "something is running" and misses the
-      # broken promise entirely. Correspondence is a judgement, so it is handed
-      # to the Jev section below, which has the message and the work side by
-      # side. Without a key that section exits and today's behaviour stands.
-      watch_unresolved=1
-    fi
+# ── Shape 3: count the background locally, ask Jev about the promise ─────────
+# Require an actual array. Neither a missing key nor a null may be read as
+# "nothing is running": has() is true for null, and [ .[]? ] over null counts
+# zero, so either would turn shape 3 into "block whenever a promise is judged".
+# A positive-case test still passes under that defect — it surfaces only as a
+# wrong block on ordinary turns, which is why mutants.sh covers it.
+#
+# Scheduled work counts too. A cron polling the thing it promised to watch is a
+# kept promise, and session_crons went unread until a probe showed shape 3
+# blocking a turn whose cron was doing exactly the polling it asked for.
+shape3_ask=0; watch_ask_match=0; running=-1
+if [ "$shape3_on" = "1" ] && \
+   [ "$(printf '%s' "$input" | jq '(.background_tasks | type) == "array"' 2>/dev/null)" = "true" ]; then
+  running=$(printf '%s' "$input" | jq '
+    ([.background_tasks[]? | select(.status=="running")] | length)
+    + ((.session_crons // []) | length)' 2>/dev/null)
+  case "$running" in ''|*[!0-9]*) running=-1 ;; esac
+  if [ "$running" -ge 0 ]; then
+    shape3_ask=1
+    # With something running, a promise is kept only if that work is what was
+    # promised — a build running while the turn promised to follow a PR review
+    # satisfies a count and breaks the promise. Asked in the same request.
+    [ "$running" -gt 0 ] && watch_ask_match=1
   fi
 fi
 
-# ── Judged by Jev: shapes 1 and 2, and the language ───────────────────────────
-# Local mode stops here unless the language question is to be asked: with
-# STINGRAY_SHAPE3 alone this skips the credential lookup and the request
-# entirely. It does not skip the work above — stdin has been read and jq and
-# grep have run — so this is not a zero-cost path, only a zero-request one.
-# Without this exit a key sitting in ~/.config would send this turn's message
-# anyway, and the switch would mean the opposite of what it says.
-#
-# STINGRAY_LANG is not a local check any more. With it on, this turn's redacted
-# final message is sent to ask one question — the same text shapes 1 and 2
-# send — and without a key the check does not run.
-[ "$MODE" = "local" ] && [ "$lang_ask" != "1" ] && exit 0
-# Shapes 1 and 2 are asked only in a Jev mode. With STINGRAY_LANG alone, the
-# request carries the language question and nothing else.
+# ── Judged by Jev ─────────────────────────────────────────────────────────────
+# Selective mode stops here when neither of its checks has a question to ask:
+# the language, when the reply has too little prose, and shape 3, when the
+# background list is missing or unreadable. Then no credential is read and no
+# request is made. Without this exit a key sitting in ~/.config would send this
+# turn's message with nothing to ask about it.
+[ "$MODE" = "selective" ] && [ "$lang_ask" != "1" ] && [ "$shape3_ask" != "1" ] && exit 0
+# Shapes 1 and 2 are asked only in active or shadow mode. In selective mode the
+# request carries only the questions of the checks switched on.
 jev_shapes=0
 { [ "$MODE" = "active" ] || [ "$MODE" = "shadow" ]; } && jev_shapes=1
 
@@ -600,26 +434,33 @@ bg_text=$(printf '%s' "$input" | jq -r '
 bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
 [ -n "${bg_text// /}" ] || bg_text="background list unavailable"
 
-# watch_mismatch is asked only when the turn claimed to watch something AND
-# something is running: that is the one case counting cannot settle. Asking it
-# otherwise would spend a question on a state the arithmetic already decided.
+# watch_mismatch is asked only when something is running, alongside watch_claim:
+# with nothing running, the count has already decided that a promise, if one was
+# made, has no mechanism behind it. watch_claim and wrong_language carry only
+# what they judge — the message, and for the language the language — because
+# the tool list and background are no evidence about either.
+#
 # wrong_language carries the final message and the language, and nothing else:
 # the tool list and background are no evidence about language. And the language
 # goes on that question only. Adding it to no_action or broken_promise would
 # change their input, and the 81.8% they were measured at would no longer be a
 # measurement of them.
 body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
-  --arg bg "$bg_text" --argjson wm "$watch_unresolved" --argjson js "$jev_shapes" \
-  --argjson la "$lang_ask" --arg lang "$want_name" --slurpfile q "$QUESTIONS" '
+  --arg bg "$bg_text" --argjson s3 "$shape3_ask" --argjson wm "$watch_ask_match" \
+  --argjson js "$jev_shapes" --argjson la "$lang_ask" --arg lang "$want_name" \
+  --slurpfile q "$QUESTIONS" '
   {model: $m,
    state: {source: "the end of one turn in a Claude Code transcript"},
    questions: ($q[0]
+     | (if $s3 == 1 then . else del(.watch_claim) end)
      | (if $wm == 1 then . else del(.watch_mismatch) end)
-     | (if $js == 1 then . else del(.no_action, .broken_promise, .watch_mismatch) end)
+     | (if $js == 1 then . else del(.no_action, .broken_promise) end)
      | (if $la == 1 then . else del(.wrong_language) end)
      | with_entries(
         if .key == "wrong_language"
         then .value.instructions += {final_text: $ft, language: $lang}
+        elif .key == "watch_claim"
+        then .value.instructions += {final_text: $ft}
         else .value.instructions += {final_text: $ft, tools: $tl, background: $bg} end))}
 ') || exit 0
 
@@ -683,6 +524,35 @@ leave code blocks, commands, paths and identifiers exactly as they are."
     log language_ok "$wl" false
   fi
 fi
+# Shape 3. A promise judged at or above τ with nothing running or scheduled
+# blocks on shape 3's own switch; with something running it blocks only if the
+# correspondence judgement also fires, on STINGRAY_SHAPE3_JUDGE. An answer that
+# is absent or outside [0,1] leaves shape 3 unjudged.
+wc=$(jq -r '.answers.watch_claim.noul
+  | select(type == "number" and . >= 0 and . <= 1)' "$out" 2>/dev/null)
+wm=$(jq -r '.answers.watch_mismatch.noul
+  | select(type == "number" and . >= 0 and . <= 1)' "$out" 2>/dev/null)
+if [ "$shape3_ask" = "1" ] && [ -n "${wc:-}" ]; then
+  if ! awk -v v="$wc" -v t="$TAU" 'BEGIN{exit !(v >= t)}'; then
+    log watch_none "$wc" false
+  elif [ "$running" = "0" ]; then
+    if [ "$shape3_blocks" = "1" ]; then
+      log unwatched "$wc" true
+      nudge "it promises to watch an external result, but nothing is running in the background"
+    fi
+    log unwatched "$wc" false
+  elif [ -n "${wm:-}" ]; then
+    if awk -v v="$wm" -v t="$TAU" 'BEGIN{exit !(v >= t)}'; then
+      if [ "$watch_judge_blocks" = "1" ]; then
+        log unwatched "$wm" true
+        nudge "it promises to watch an external result, and nothing that is running corresponds to it"
+      fi
+      log unwatched "$wm" false
+    else
+      log watch_ok "$wm" false
+    fi
+  fi
+fi
 [ "$jev_shapes" = "1" ] || exit 0
 
 # Both scores must be numbers in [0,1]. A character allowlist would admit "2"
@@ -694,23 +564,6 @@ read -r na bp <<<"$(jq -r '
 ' "$out" 2>/dev/null)"
 [ -n "${na:-}" ] && [ -n "${bp:-}" ] || {
   echo "(stingray: unavailable — malformed response)" >&2; exit 0; }
-
-# watch_mismatch only when it was asked. An absent or out-of-range answer leaves
-# shape 3 exactly where the arithmetic left it: unresolved, and therefore not
-# acted on.
-wm=$(jq -r '.answers.watch_mismatch.noul
-  | select(type == "number" and . >= 0 and . <= 1)' "$out" 2>/dev/null)
-if [ "$watch_unresolved" = "1" ] && [ -n "${wm:-}" ]; then
-  if awk -v v="$wm" -v t="$TAU" 'BEGIN{exit !(v >= t)}'; then
-    if [ "$watch_judge_blocks" = "1" ]; then
-      log unwatched "$wm" true
-      nudge "it promises to watch an external result, and nothing that is running corresponds to it"
-    fi
-    log unwatched "$wm" false
-  else
-    log watch_ok "$wm" false
-  fi
-fi
 
 fired=$(awk -v a="$na" -v b="$bp" -v t="$TAU" 'BEGIN{
   if (a >= t && a >= b) print "no_action";

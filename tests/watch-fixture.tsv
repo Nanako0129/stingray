@@ -1,42 +1,32 @@
-# stingray shape 3 — WATCH_RE regression fixture
+# stingray shape 3 — labelled lines for calibrating watch_claim
 #
 # Columns: expect <TAB> origin <TAB> text
-#   expect = watch   the line promises to watch an external result; WATCH_RE must match
-#   expect = quiet   the line does not; WATCH_RE must not match
+#   expect = watch   the line promises to watch an external result, or says a
+#                    watch it set up is running; shape 3 must block it
+#   expect = quiet   the line does not; shape 3 must let it through
 #
-# origin records where the line came from, because a fixture whose provenance is
-# lost becomes a list of strings someone later edits to make the tests pass.
+# tests/watch-fixture.sh sends each line through the shipped hook to Jev and
+# compares. It needs a key and is not run in CI. At τ = 0.5 it agrees on 42 of
+# the 43 it scores. The miss is "keep an eye on the review" at 0.46–0.48: it
+# has no subject and reads as well as an instruction to the user. It stays
+# labelled `watch`, because the label records what the line means, not what
+# the rule does with it. The 44th, "poll-coderabbit.sh 的參數解析有缺陷", is
+# never scored: redaction drops a line naming a file before Jev sees it.
+#
+# The lines were collected while shape 3 was a regular expression, and origin
+# records why each was added, because a fixture whose provenance is lost
+# becomes a list of strings someone later edits to make the tests pass:
 #   live-fp    an observed false positive: this exact text blocked a real turn
 #   live-tp    a real promise from a real session
-#   control    written for this fixture, labelled by hand. The two measure-word
-#              lines ("三個監看", "每支輪詢") fail if 支段個 are refused outright
-#              instead of only after 那 or 這.
-#   short      a real promise too short to carry a target keyword; see NOTE below
-#              (recovered by the aspect branch, so expected `watch`)
-#   nom-cost   a genuine watch written as a possessive noun phrase ("CI 的監看還
-#              掛著"). The possessive exclusion withdraws it and WATCH_ASPECT
-#              gives it back, so each of these fails if either half is removed.
-#   inline-fp  two nominalisations on one line whose tail and head reach across
-#              the sentence boundary, manufacturing a forward claim neither makes
-#              alone. Observed in a review message about this very rule.
-#   clause-tp  a real promise sharing a line with a clause that merely discusses
-#              a poller. These fail against any rule that evaluates its exclusion
-#              separately from the hit, because the discussing clause withdraws
-#              the promising one.
-#   rev-fp     target-then-verb text that describes a poller rather than promising
-#              to watch one. The reverse branch reads these as claims unless a
-#              possessive or demonstrative marks the verb as a noun; they are
-#              here so that exclusion cannot be removed without a failure.
-#
-# NOTE on `short` and `nom-cost`: both were losses of the target requirement and
-# are recovered by WATCH_ASPECT, so both are labelled `watch`. They keep their
-# original origins so that removing the aspect branch fails here rather than
-# quietly shrinking the rule. Neither class carries a target keyword, so no
-# window width reaches them; the aspect marker is the only thing that does.
-#
-# What is still uncovered, and has no line here because nothing passes it: a
-# targetless promise with no aspect marker either, such as
-# "推送、重建、輪詢第十二輪。"
+#   control    written for this fixture, labelled by hand
+#   short      a real promise that names no target, such as "輪詢中"
+#   nom-cost   a genuine watch written as a noun phrase ("CI 的監看還掛著")
+#   inline-fp  two noun phrases on one line whose tail and head once combined
+#              into a claim neither makes alone
+#   clause-tp  a real promise sharing a line with a clause about a poller
+#   rev-fp     text that names a target, then describes a poller
+# Each class was a failure of that regular expression, which is why the set is
+# a useful calibration: it is concentrated on the sentences that are hard.
 
 quiet	live-fp	過去旗標缺少參數時，無限迴圈發生在參數解析階段，根本未進入輪詢
 quiet	live-fp	最危險的是 --timeout ""，實測觀察到它未發起任何輪詢就直接回傳 RESULT=TIMEOUT
