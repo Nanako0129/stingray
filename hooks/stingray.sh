@@ -72,8 +72,8 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # read the log blocked a real turn while it was waiting on the user, not on
 # anything external; replayed under the old wording it scored 0.53–0.58.
 # On the 50 lines of watch-fixture.tsv the old wording gets 3 wrong and scores a
-# non-promise as high as 0.82. One pass of the new one scored promises 0.53 and
-# above and the rest 0.22 and below.
+# non-promise as high as 0.82. The new one scores the promises 0.68 and above,
+# the rest 0.20 and below, with "keep an eye on the review" at the threshold.
 #
 # What Jev sees is the redacted message, and redaction drops a whole line that
 # carries a path. A promise written on the same line as a file path is therefore
