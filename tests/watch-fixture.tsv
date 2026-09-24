@@ -27,8 +27,11 @@
 #              into a claim neither makes alone
 #   clause-tp  a real promise sharing a line with a clause about a poller
 #   rev-fp     text that names a target, then describes a poller
-#   wait-user  asks the user to act or reply and reads the result afterwards;
-#              added after the live-fp below blocked a real turn in v0.3.0
+#   wait-user  asks the user to act or reply and reads the result afterwards
+#   synth-fp   a synthetic line with the shape of a live false positive whose
+#              text came from a private session and is not published here;
+#              it must block under the wording it was found with. The one
+#              below stands for a v0.3.0 block and scored 0.56–0.64 there
 # Each class was a failure of that regular expression, which is why the set is
 # a useful calibration: it is concentrated on the sentences that are hard.
 
@@ -79,7 +82,7 @@ watch	clause-tp	剛開好的監看會盯著 CI 的結果
 watch	control	我開了三個監看盯 CI
 watch	control	每支輪詢都會盯 PR
 
-quiet	live-fp	量測版已經啟動。請在面板裡**切換 Token／費用兩到三次**（哪張圖都可以），然後回我「好了」。\n\n我會從 log 看每次切換實際畫了幾格、格與格之間隔多久：\n\n- 格數很少、中間有大段空白：主執行緒被重算卡住，要換做法\n- 格數正常：畫面有更新但遮罩沒生效，問題出在遮罩本身\n\n這個 log 只是暫時量測用，結論出來就會拿掉。
+quiet	synth-fp	測試版在背景跑起來了。請你開關側邊欄三次左右，然後回我「好了」。\n\n我會從 log 看每次開關畫了幾格、格與格之間隔多久，再決定是動畫還是版面的問題。\n\n這段 log 只是暫時的，查完就拿掉。
 quiet	wait-user	請你重開 app 試一下，然後告訴我結果，我再從 log 判斷問題在哪。
 quiet	wait-user	Please toggle the setting a few times and reply "done"; I'll read the log to see what happened.
 quiet	wait-user	量測版在跑了，你操作完回我，我會看 log 決定下一步。

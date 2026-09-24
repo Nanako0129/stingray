@@ -67,9 +67,10 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # 監看，結果與剛才回報的相同" stays at 0.12.
 #
 # 0.3.1 added to the false criterion a reply that asks the user to act or reply
-# and then reads the result itself. "量測版已經啟動。請…切換…然後回我「好了」。
-# 我會從 log 看每次切換…" blocked a real turn while it was waiting on the user,
-# not on anything external; replayed under the old wording it scores 0.53–0.58.
+# and then reads the result itself. A reply that started a debug build, asked
+# the user to toggle something a few times and reply, and said it would then
+# read the log blocked a real turn while it was waiting on the user, not on
+# anything external; replayed under the old wording it scored 0.53–0.58.
 # On the 50 lines of watch-fixture.tsv the old wording gets 3 wrong and scores a
 # non-promise as high as 0.82. One pass of the new one scored promises 0.53 and
 # above and the rest 0.22 and below.
