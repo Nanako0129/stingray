@@ -66,6 +66,15 @@ QUESTIONS="${STINGRAY_QUESTIONS:-$HERE/../questions.json}"
 # same claim to shape 3, and that line scores 0.91 while "那是同一輪 CI 的第二個
 # 監看，結果與剛才回報的相同" stays at 0.12.
 #
+# 0.3.1 added to the false criterion a reply that asks the user to act or reply
+# and then reads the result itself. A reply that started a debug build, asked
+# the user to toggle something a few times and reply, and said it would then
+# read the log blocked a real turn while it was waiting on the user, not on
+# anything external; replayed under the old wording it scored 0.53–0.58.
+# On the 50 lines of watch-fixture.tsv the old wording gets 3 wrong and scores a
+# non-promise as high as 0.82. The new one scores the promises 0.68 and above,
+# the rest 0.20 and below, with "keep an eye on the review" at the threshold.
+#
 # What Jev sees is the redacted message, and redaction drops a whole line that
 # carries a path. A promise written on the same line as a file path is therefore
 # gone before it is judged. The regex read the raw message and saw it; that is
