@@ -26,7 +26,7 @@ while IFS=$'\t' read -r expect origin text; do
   rc=0
   jq -cn --arg m "$text" --arg s "fixture-$n" '{session_id:$s, prompt_id:"p",
       transcript_path:"/nonexistent/t.jsonl", cwd:"/tmp", permission_mode:"default",
-      hook_event_name:"Stop", stop_hook_active:false, last_assistant_message:$m,
+      hook_event_name:"Stop", stop_hook_active:false, last_assistant_message:($m | gsub("\\\\n"; "\n")),
       background_tasks:[], session_crons:[]}' \
     | env -i PATH="$PATH" HOME="${HOME:-}" TYPESAFE_API_KEY="$KEY" STINGRAY_SHAPE3=1 \
         STINGRAY_STATE_DIR="$TMP/st" "$HOOK_SH" "$HOOK" >/dev/null 2>&1 || rc=$?
