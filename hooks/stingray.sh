@@ -323,10 +323,9 @@ if [ "$shape3_on" = "1" ] && \
     + ((.session_crons // []) | length)' 2>/dev/null)
   case "$running" in ''|*[!0-9]*) running=-1 ;; esac
   transcript_file=$(j '.transcript_path')
-  # No transcript means handoffs were never observable for this caller — a
-  # synthetic payload or another host — and the count stays what the payload
-  # says, as before handoffs were counted. A missing handoffs.jq is a broken
-  # install: that is a failure, so the count becomes unknown.
+  # Without a transcript file the scan is skipped and the count stays what the
+  # payload says, as it was before handoffs were counted. A missing handoffs.jq
+  # is a broken install: that is a failure, so the count becomes unknown.
   if [ "$running" -ge 0 ] && [ -f "$transcript_file" ] && [ ! -f "$HERE/handoffs.jq" ]; then
     running=-1
   elif [ "$running" -ge 0 ] && [ -f "$transcript_file" ]; then
