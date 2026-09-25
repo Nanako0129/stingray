@@ -282,6 +282,22 @@ l3=$(jq -c '{q: (.questions | keys), na: (.questions.no_action.instructions | ha
   && say ok "L3 STINGRAY + LANG → one request, language only on wrong_language" \
   || say no "L3 STINGRAY + LANG → sent: ${l3:-<no request captured>}"
 
+# L3.1. The language question sees language names replaced; the other
+#     questions do not. A zh-TW reply that only mentions 簡體中文 was judged to be
+#     written in it and blocked three turns in a row. no_action keeps the words,
+#     because its measured input is the redacted message and nothing else.
+LNAMES='簡體中文那一段已經合併了，English 版的 README 也更新好，接下來我會整理日文翻譯的清單給你確認。'
+rm -f "$TMP/captured-record"; start_stub record
+run_lang "$TMP/l31" "$(mkl "$LNAMES" net-l31)" STINGRAY=1 STINGRAY_LANG=1; rc=$?
+kill "$STUB_PID" 2>/dev/null; STUB_PID=
+l31=$(jq -r '[.questions.wrong_language.instructions.final_text, .questions.no_action.instructions.final_text] | @tsv' "$TMP/captured-record" 2>/dev/null | head -1)
+l31_lang=${l31%%$'\t'*}; l31_na=${l31#*$'\t'}
+case "$l31_lang" in *簡體中文*|*English*|*日文*|'') l31_ok=0 ;; *〔語言〕*) l31_ok=1 ;; *) l31_ok=0 ;; esac
+case "$l31_na" in *簡體中文*English*日文*) ;; *) l31_ok=0 ;; esac
+[ "$l31_ok" = 1 ] \
+  && say ok "L3.1 language names masked on wrong_language only" \
+  || say no "L3.1 masking → wrong_language: ${l31_lang:-<none>} | no_action: ${l31_na:-<none>}"
+
 # L4. The project's settings.local.json outranks the user file, and a code the
 #     hook knows is sent as a name.
 LPROJ="$TMP/lproj"; mkdir -p "$LPROJ/.claude"; printf '{"language":"en"}\n' >"$LPROJ/.claude/settings.local.json"
