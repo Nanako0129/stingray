@@ -119,6 +119,41 @@ claude plugin list | grep stingray
 tail -f ~/.local/state/stingray/decisions.jsonl   # written by shape 3 too, before it blocks
 ```
 
+### Codex plugin
+
+Install the Codex hook directly from the GitHub marketplace:
+
+```bash
+codex plugin marketplace add Nanako0129/stingray
+codex plugin add stingray@stingray
+```
+
+The Codex manifest at `.codex-plugin/plugin.json` explicitly selects
+`hooks/hooks.codex.json`, so Codex does not load the root's Claude
+`hooks/hooks.json`. The Claude and Codex manifests carry the same version;
+CI checks that they stay in sync. A Git tag therefore contains that version
+of both plugins without a separate ZIP. To update, run
+`codex plugin marketplace upgrade stingray`, then
+`codex plugin add stingray@stingray`.
+
+Start a new Codex session after installing or updating. Review and trust the
+bundled Stop hook using `/hooks` before enabling it: the hook runs shell
+commands locally. Installation does not enable Stingray's checks by itself.
+Set `STINGRAY`, `STINGRAY_SHAPE3`, or
+`STINGRAY_SHADOW` in the **Codex process environment**, and provide
+`TYPESAFE_API_KEY` or `~/.config/typesafe/api_key`. In v0.3.0, shape 3 also
+requires the key and sends the redacted final message to TypeSafe. A shell
+export does not reach an already-running Codex desktop process. The Codex Stop
+payload currently lacks some Claude fields: if background-task state is absent,
+shape 3 treats it as unknown and does not block on that check.
+
+Shapes 1 and 2 are judged without this turn's tool list under Codex: the payload
+carries no `prompt_id` to slice the transcript with, so the hook sends "tool list
+for this turn unavailable" rather than "no tools were called". Measured on 5
+finished-work replies: none was blocked, but `no_action` rose from 0.06–0.15
+with the tool list to 0.32–0.38 without it, against τ = 0.5. The 81.8% figure
+does not cover Codex; start with `STINGRAY_SHADOW=1` there.
+
 ### Manual hook configuration
 
 The hook can be wired directly as a shell script:

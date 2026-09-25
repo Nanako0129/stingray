@@ -1,0 +1,23 @@
+{
+  "name": "stingray",
+  "version": "0.3.4",
+  "description": "Stop hook that catches a turn stopping half-done and pushes Codex back to finish it.",
+  "author": {
+    "name": "Nanako0129",
+    "url": "https://github.com/Nanako0129"
+  },
+  "homepage": "https://github.com/Nanako0129/stingray",
+  "repository": "https://github.com/Nanako0129/stingray",
+  "license": "MIT",
+  "keywords": ["stop-hook", "follow-through", "typesafe", "jev", "guardrail"],
+  "hooks": "./hooks/hooks.codex.json",
+  "interface": {
+    "displayName": "Stingray",
+    "shortDescription": "Keep Codex working when a turn stops half-done.",
+    "longDescription": "Stingray checks Codex Stop events for unfinished actions and unfulfilled promises, then asks Codex to continue.",
+    "developerName": "Nanako0129",
+    "category": "Developer Tools",
+    "capabilities": ["Hooks"],
+    "defaultPrompt": "Use Stingray to catch unfinished work before Codex stops."
+  }
+}

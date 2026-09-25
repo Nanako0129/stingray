@@ -36,7 +36,9 @@ jobs:
       - name: Shell syntax
         run: |
           bash -n hooks/stingray.sh
+          bash -n hooks/stingray-codex.sh
           bash -n tests/acceptance.sh
+          bash -n tests/codex-hook.sh
           bash -n tests/network.sh
           bash -n tests/show-payload.sh
 
@@ -44,6 +46,11 @@ jobs:
         run: |
           jq -e 'to_entries | all(.value.type == "noul" and (.value.criteria | has("true") and has("false")))' \
             questions.json >/dev/null
+
+      - name: Codex plugin definition is valid
+        run: |
+          jq -e . .codex-plugin/plugin.json >/dev/null
+          jq -e . hooks/hooks.codex.json >/dev/null
 
       # No API key, no network. This is the whole gate: if the acceptance suite
       # needed a secret it could not run on a fork's pull request, which is
@@ -61,6 +68,8 @@ jobs:
       - name: Guards still guard (mutation check)
         run: bash tests/mutants.sh
 
+      - name: Codex marketplace hook
+        run: bash tests/codex-hook.sh
   # `claude plugin update` keys on the version string alone. A hook change under
   # an unchanged version reaches no existing install while the tool reports
   # success, so the version is enforced rather than remembered.
@@ -86,12 +95,21 @@ jobs:
           BASE: ${{ github.base_ref }}
         run: |
           base_v=$(git show "origin/$BASE:.claude-plugin/plugin.json" | jq -r .version)
-          jq --arg v "$base_v" '.version=$v' .claude-plugin/plugin.json > p.json
-          mv p.json .claude-plugin/plugin.json
+          # Both manifests go back to the base version: leaving Codex ahead
+          # would trip the equality check first, and the guard would fail for a
+          # reason other than the one this step exists to prove. Set directly,
+          # since the Codex manifest may not exist in the base revision.
+          for m in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+            jq --arg v "$base_v" '.version=$v' "$m" > p.json
+            mv p.json "$m"
+          done
           printf '\n# mutation probe\n' >> hooks/stingray.sh
           git -c user.email=ci@local -c user.name=ci commit -aqm probe
-          if bash tests/version-bump.sh "origin/$BASE"; then
+          if bash tests/version-bump.sh "origin/$BASE" 2> guard.err; then
             echo "version-bump.sh passed a hook change with no bump"
             exit 1
           fi
+          cat guard.err
+          grep -q '^version-bump: FAIL' guard.err || {
+            echo "the guard failed, but not on the missing bump"; exit 1; }
           echo "guard failed as required"
