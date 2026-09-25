@@ -323,7 +323,13 @@ if [ "$shape3_on" = "1" ] && \
     + ((.session_crons // []) | length)' 2>/dev/null)
   case "$running" in ''|*[!0-9]*) running=-1 ;; esac
   transcript_file=$(j '.transcript_path')
-  if [ "$running" -ge 0 ] && [ -f "$transcript_file" ] && [ -f "$HERE/handoffs.jq" ]; then
+  # No transcript means handoffs were never observable for this caller — a
+  # synthetic payload or another host — and the count stays what the payload
+  # says, as before handoffs were counted. A missing handoffs.jq is a broken
+  # install: that is a failure, so the count becomes unknown.
+  if [ "$running" -ge 0 ] && [ -f "$transcript_file" ] && [ ! -f "$HERE/handoffs.jq" ]; then
+    running=-1
+  elif [ "$running" -ge 0 ] && [ -f "$transcript_file" ]; then
     # A scan that fails leaves the count unknown, not zero: an unreadable file or
     # a record jq cannot parse must not turn a pending handoff into a block.
     if handoffs=$(set -o pipefail

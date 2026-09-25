@@ -291,7 +291,7 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 ## 已知限制
 
 - 交辦在對方回覆前都會算數。如果對方一直沒回，這個 session 剩下的時間裡，形狀 3 都會把那個承諾當成有機制在等。
-- 交辦偵測依賴 2026-09-26 觀察到的 Claude Code transcript 格式：`SendMessage` 的結果寫著「another Claude session」，回覆以 `<cross-session-message … from-name="…">` 送達。格式改變的話就看不到交辦，這類回合會跟以前一樣被攔。
+- 交辦偵測依賴 2026-09-26 觀察到的 Claude Code transcript 格式：`SendMessage` 的結果寫著「another Claude session」，回覆以 `<cross-session-message … from-name="…">` 送達。格式改變的話就看不到交辦，這類回合會跟以前一樣被攔；沒有提供 transcript 的呼叫者也一樣。
 - `questions.json` 內的判斷標準以繁體中文撰寫，此為測得 81.8% 這個數字的語料基礎。英文標準未經實測驗證，任意替換將導致該準確率指標失效。在英文環境使用需重寫題本並重新校準。
 - 形狀 3 的對應判斷無法離線量測：`background_tasks` 欄位只存在於 hook 執行當下，無法從 transcript 重建。承諾判斷則可以量，也量了──見 `tests/watch-fixture.sh`。
 - 形狀 3 看不見和檔案路徑寫在同一行的承諾。遮蔽會在 Jev 讀到之前刪掉那一行，刪完如果沒剩任何文字，這一輪根本不會被問。透過出貨的 hook 實測：「我會盯著 src/main.rs 的 CI 結果」沒有被問；同樣的承諾把路徑放到另一行，就以 0.97 被攔下。它取代的正規表達式讀的是原文、看得見這種寫法；這是這次唯一放棄的東西。
