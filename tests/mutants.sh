@@ -100,6 +100,13 @@ mutate "subagent-counted" "8.3" \
   '| select($cross | index($snd.id))' \
   '' \
   handoffs.jq
+mutate "quote-is-answer" "8.4" \
+  'capture("^(?:Another' \
+  'capture("(?:Another' \
+  handoffs.jq
+mutate "failed-scan-is-none" "8.5" \
+  'handoffs=""; running=-1' \
+  'handoffs=""'
 
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"

@@ -324,9 +324,15 @@ if [ "$shape3_on" = "1" ] && \
   case "$running" in ''|*[!0-9]*) running=-1 ;; esac
   transcript_file=$(j '.transcript_path')
   if [ "$running" -ge 0 ] && [ -f "$transcript_file" ] && [ -f "$HERE/handoffs.jq" ]; then
-    handoffs=$(perl -ne 'print if /"SendMessage"|another Claude session|cross-session-message/' "$transcript_file" 2>/dev/null \
-      | jq -rs -f "$HERE/handoffs.jq" 2>/dev/null)
-    [ -n "$handoffs" ] && running=$((running + $(printf '%s\n' "$handoffs" | grep -c .)))
+    # A scan that fails leaves the count unknown, not zero: an unreadable file or
+    # a record jq cannot parse must not turn a pending handoff into a block.
+    if handoffs=$(set -o pipefail
+        perl -ne 'print if /"SendMessage"|another Claude session|cross-session-message/' "$transcript_file" 2>/dev/null \
+        | jq -rs -f "$HERE/handoffs.jq" 2>/dev/null); then
+      [ -n "$handoffs" ] && running=$((running + $(printf '%s\n' "$handoffs" | grep -c .)))
+    else
+      handoffs=""; running=-1
+    fi
   fi
   if [ "$running" -ge 0 ]; then
     shape3_ask=1

@@ -153,6 +153,21 @@ check "8.2 handoff already answered → block" "$(ho_mk "$TMP/ho-answered.jsonl"
 check "8.3 message to a subagent is not a handoff → block" "$(ho_mk "$TMP/ho-subagent.jsonl" sess-h3)" 2 "nothing is running" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
+# 8.4. A message that quotes the answer tag mid-text is not an answer. Matched
+#     anywhere, the quote below ended a handoff still waiting.
+{ ho_send toolu_H1 win-94 "$HO_CROSS"
+  jq -cn '{type:"user",message:{role:"user",content:"這段是什麼：<cross-session-message from=\"uds:/tmp/x.sock\" from-name=\"win-94\"> 我看不懂"}}'
+} >"$TMP/ho-quoted.jsonl"
+check "8.4 a quoted answer tag does not end a handoff → pass" "$(ho_mk "$TMP/ho-quoted.jsonl" sess-h4)" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+
+# 8.5. A scan that fails leaves the count unknown. The truncated record below is
+#     the kind a transcript still being written can end on; with the handoffs
+#     read as none, shape 3 blocked.
+{ ho_send toolu_H1 win-94 "$HO_CROSS"; printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SendMessage"'; } >"$TMP/ho-broken.jsonl"
+check "8.5 unreadable handoff scan → shape 3 unknown, pass" "$(ho_mk "$TMP/ho-broken.jsonl" sess-h5)" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+
 # 10. No monitoring claim at all: shape 3 is silent.
 check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]' sess-10)" 0 "-" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${ZEROS[@]}"
