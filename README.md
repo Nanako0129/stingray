@@ -64,6 +64,8 @@ A message is asked about only when it has prose to judge — at least 12 units o
 
 It needs an API key, like shapes 1 and 2, and sends the same redacted final message they do. It replaced a local rule that counted Han characters against English words, which could only ever see English: Japanese scored as Chinese, and Korean or Russian as nothing at all.
 
+The language question sees language **names** replaced by a placeholder, `〔語言〕`. Asked whether a reply is in 繁體中文, Jev read one that merely mentioned 簡體中文 as written in it: `E（簡體中文，#142）已用 merge commit 合併。…` blocked three turns in a row at 0.62–0.79. With the names replaced, that reply and its rewrite score 0.09–0.12 through the hook, and replies actually written in Simplified Chinese, English, Japanese and Korean still block at 0.64–0.97. Rewording the question's criterion instead left the false positives at 0.62–0.91 and dropped a Korean reply below τ. Shapes 1 and 2 get the message unchanged.
+
 ## Friction only ever goes up
 
 Every failure path exits 0: missing API keys, absent `jq`, missing `questions.json`, endpoints that are neither HTTPS nor loopback, credential patterns spotted in outgoing payloads, timeouts, non-200 responses, malformed bodies, scores outside [0, 1] or below threshold, unreadable `background_tasks`, or failures writing the interception counter.
@@ -194,7 +196,7 @@ Only these fields are transmitted, and only when an API key is configured:
 | `final_text` | The last assistant message, redacted, then truncated to the last 2400 **bytes** — roughly 800 CJK characters, but approximately 2400 ASCII characters. An English turn transmits roughly three times the character volume used in benchmark evaluations. |
 | `tools` | Tool **names** and invocation counts for this turn, excluding arguments. |
 | `background` | For each background task: status and **description**. For each scheduled cron: the assigned **prompt**. Both undergo message redaction after stripping credential patterns. Command lines are never sent. |
-| `language` | The configured language, as a name — on the language question only, which carries this and `final_text` and nothing else. |
+| `language` | The configured language, as a name — on the language question only, which carries this and `final_text` and nothing else. Its `final_text` has language names such as 簡體中文 or English replaced by `〔語言〕`. |
 
 User prompts sent to Claude are never transmitted. Tool arguments, file contents, diffs, and executed command lines are never transmitted.
 
@@ -289,8 +291,9 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 - Shape 3 cannot see a promise written on the same line as a file path. Redaction drops that line before Jev reads the message, and when nothing else is left the turn is not asked about at all. Measured through the shipped hook: "我會盯著 src/main.rs 的 CI 結果" was not asked about, while the same promise with the path on its own line was blocked at 0.97. The regular expression it replaced read the raw message and did see it; this is the one thing given up.
 - "keep an eye on the review" scores 0.47–0.53 across five runs through the hook, so whether it blocks is a coin toss. Without a subject it reads as well as an instruction to the user.
 - Redaction leaves the substance of the work visible, as detailed in the privacy section.
-- Shape 4 has been measured on synthetic replies only, 20 of them, and no real transcript was sent to measure it. zh-TW replies scored 0.10–0.23, including one made of identifiers and one quoting English; English, Japanese, Korean and Russian replies 0.97–0.98; English quoting Chinese terms 0.77; the wrong target in either direction 0.95–0.98. τ is the shared 0.5. How it scores on your own writing is what `decisions.jsonl` will show — its records are `wrong_language` and `language_ok`.
-- Shape 4 does not reliably tell Simplified from Traditional Chinese: a Simplified reply against a zh-TW setting scored 0.29.
+- Shape 4 was measured on 20 synthetic replies for 0.2.0 and on 9 more for 0.3.2, plus two real replies the hook had already sent when they blocked by mistake, replayed to find the cause. No other transcript was sent to measure it. zh-TW replies scored 0.10–0.23, including one made of identifiers and one quoting English; English, Japanese, Korean and Russian replies 0.97–0.98; English quoting Chinese terms 0.77; the wrong target in either direction 0.95–0.98. τ is the shared 0.5. How it scores on your own writing is what `decisions.jsonl` will show — its records are `wrong_language` and `language_ok`.
+- Shape 4 does not reliably tell Simplified from Traditional Chinese: one Simplified reply against a zh-TW setting scored 0.29 in 0.2.0, while two in 0.3.2 blocked at 0.64 and 0.90.
+- A zh-TW reply about Simplified localisation that quotes Mainland terms (`「軟件」「用戶」`) still blocks, at 0.77–0.79: the placeholder removes the language's name, not the quoted words.
 - The harness writes its own English notices into the transcript as assistant text — "You've hit your session limit …", "API Error: Connection lost mid-response …". The hooks reference says a turn ending on an API error fires `StopFailure`, not `Stop`, which would keep them away from this hook. That is documented, not measured. If one does arrive, shape 4 judges it once and the re-entry guard stops a second.
 - `network.sh --live` encountered an 8/9 result on a single test run; five subsequent reruns could not reproduce the failure, and the failing check was not identified. This occurrence is documented in test comments.
 

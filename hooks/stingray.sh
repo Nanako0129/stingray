@@ -402,6 +402,25 @@ redact_text() {
 redacted=$(printf '%s' "$last" | redact_text)
 redacted=$(printf '%s' "$redacted" | tail -c 2400)   # ~800 CJK characters
 
+# The language question sees language NAMES replaced by a placeholder. Asked
+# whether a reply is in 繁體中文, Jev reads a reply that merely mentions 簡體中文
+# as one written in it: "E（簡體中文，#142）已用 merge commit 合併。…" blocked three
+# turns in a row, 0.62–0.79. Replayed with the name replaced, that reply scored
+# 0.11, and replies actually written in Simplified Chinese, English, Japanese and
+# Korean still scored 0.61–0.96. Rewording the criterion instead did not move
+# the false positives (0.62–0.91) and cost the Korean reply (0.56 → 0.40). What
+# the question judges is the script and wording, which the names are not. Only
+# wrong_language gets this text; shapes 1 and 2 keep their measured input.
+# The English names are bounded by Latin letters, not \b: Perl counts a Han
+# character as a word character, so \b found no boundary in "English版".
+mask_language_names() {
+  perl -CSD -Mutf8 -pe '
+    s/繁體中文|繁体中文|簡體中文|简体中文|簡体中文|正體中文|中文|英文|日文|日語|日语|韓文|韓語|韩语|간체\s*중국어|번체\s*중국어|중국어|영어|일본어/〔語言〕/g;
+    s/(?<![A-Za-z])(?:simplified\s+chinese|traditional\s+chinese|chinese|english|japanese|korean)(?![A-Za-z])/〔語言〕/gi'
+}
+lang_text=""
+[ "$lang_ask" = "1" ] && lang_text=$(printf '%s' "$redacted" | mask_language_names)
+
 [ -n "$(printf '%s' "$redacted" | tr -d '[:space:]')" ] || exit 0
 
 # Tool names for this turn, taken from the transcript. When they cannot be read,
@@ -457,6 +476,7 @@ bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
 body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
   --arg bg "$bg_text" --argjson s3 "$shape3_ask" --argjson wm "$watch_ask_match" \
   --argjson js "$jev_shapes" --argjson la "$lang_ask" --arg lang "$want_name" \
+  --arg lft "$lang_text" \
   --slurpfile q "$QUESTIONS" '
   {model: $m,
    state: {source: "the end of one turn in a Claude Code transcript"},
@@ -467,7 +487,7 @@ body=$(jq -cn --arg m "$MODEL" --arg ft "$redacted" --arg tl "$tools" \
      | (if $la == 1 then . else del(.wrong_language) end)
      | with_entries(
         if .key == "wrong_language"
-        then .value.instructions += {final_text: $ft, language: $lang}
+        then .value.instructions += {final_text: $lft, language: $lang}
         elif .key == "watch_claim"
         then .value.instructions += {final_text: $ft}
         else .value.instructions += {final_text: $ft, tools: $tl, background: $bg} end))}
