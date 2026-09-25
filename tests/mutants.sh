@@ -20,16 +20,17 @@ trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
 # Break the hook on purpose, then require the case that exists to catch that
-# break to fail. mutate <name> <case-label> <anchor> <replacement>: the anchor
+# break to fail. mutate <name> <case-label> <anchor> <replacement> [file under
+# hooks/, default stingray.sh]: the anchor
 # must still be present in the hook, so a refactor that moves the code under
 # test fails loudly here instead of quietly disarming the mutant.
 mutate() {
-  local name="$1" want_case="$2" anchor="$3" replacement="$4"
+  local name="$1" want_case="$2" anchor="$3" replacement="$4" file="${5:-stingray.sh}"
   local dir="$TMP/$name"
   mkdir -p "$dir"
   cp -R "$ROOT/hooks" "$ROOT/tests" "$ROOT/questions.json" "$dir/"
 
-  ANCHOR="$anchor" REPLACEMENT="$replacement" python3 - "$dir/hooks/stingray.sh" <<'PY'
+  ANCHOR="$anchor" REPLACEMENT="$replacement" python3 - "$dir/hooks/$file" <<'PY'
 import os, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text()
@@ -82,6 +83,23 @@ mutate "null-is-empty-array" "16" \
 mutate "selective-sends-anyway" "15.1" \
   '[ "$MODE" = "selective" ] && [ "$lang_ask" != "1" ] && [ "$shape3_ask" != "1" ] && exit 0' \
   ':'
+
+# Mutants 5–7 — the cross-session handoff. Ignoring handoffs brings back the
+# block on a turn that handed its work to another session (8.1); ignoring the
+# answer keeps a finished handoff counted as running forever (8.2); counting a
+# message to an in-process subagent turns every subagent nudge into cover for
+# an empty promise (8.3).
+mutate "handoffs-ignored" "8.1" \
+  '[ -n "$handoffs" ] && running=$((running + $(printf '"'"'%s\n'"'"' "$handoffs" | grep -c .)))' \
+  ':'
+mutate "answer-ignored" "8.2" \
+  '| select([ $incoming[]' \
+  '| select([ $incoming[] | select(false)' \
+  handoffs.jq
+mutate "subagent-counted" "8.3" \
+  '| select($cross | index($snd.id))' \
+  '' \
+  handoffs.jq
 
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"

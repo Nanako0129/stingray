@@ -307,6 +307,14 @@ fi
 # Scheduled work counts too. A cron polling the thing it promised to watch is a
 # kept promise, and session_crons went unread until a probe showed shape 3
 # blocking a turn whose cron was doing exactly the polling it asked for.
+#
+# A handoff to another Claude session counts as well: SendMessage to it, with no
+# answer from it yet (hooks/handoffs.jq). "Handed to the Windows session,
+# waiting for it to report" blocked a real turn that had done exactly that,
+# because neither list shows a message waiting for a reply. perl filters the
+# transcript first: on a 55 MB transcript it took 0.18–0.23s where grep -F took
+# 1.9–3.7s and jq over the whole file 0.75–1.0s, all under the same load.
+handoffs=""
 shape3_ask=0; watch_ask_match=0; running=-1
 if [ "$shape3_on" = "1" ] && \
    [ "$(printf '%s' "$input" | jq '(.background_tasks | type) == "array"' 2>/dev/null)" = "true" ]; then
@@ -314,6 +322,12 @@ if [ "$shape3_on" = "1" ] && \
     ([.background_tasks[]? | select(.status=="running")] | length)
     + ((.session_crons // []) | length)' 2>/dev/null)
   case "$running" in ''|*[!0-9]*) running=-1 ;; esac
+  transcript_file=$(j '.transcript_path')
+  if [ "$running" -ge 0 ] && [ -f "$transcript_file" ] && [ -f "$HERE/handoffs.jq" ]; then
+    handoffs=$(perl -ne 'print if /"SendMessage"|another Claude session|cross-session-message/' "$transcript_file" 2>/dev/null \
+      | jq -rs -f "$HERE/handoffs.jq" 2>/dev/null)
+    [ -n "$handoffs" ] && running=$((running + $(printf '%s\n' "$handoffs" | grep -c .)))
+  fi
   if [ "$running" -ge 0 ]; then
     shape3_ask=1
     # With something running, a promise is kept only if that work is what was
@@ -459,6 +473,14 @@ bg_text=$(printf '%s' "$input" | jq -r '
     ((.session_crons // [])[]? | "scheduled: \(.prompt // "(no prompt)")") ]
   | if length == 0 then "nothing running or scheduled" else join(" | ") end end' 2>/dev/null)
 [ -n "$bg_text" ] || bg_text="background list unavailable"
+# Only the session's name leaves the machine for a handoff, never the message.
+if [ -n "$handoffs" ]; then
+  ho_text=$(printf '%s\n' "$handoffs" | sed 's/^/awaiting a reply from another Claude session: /' | paste -sd'|' - | sed 's/|/ | /g')
+  case "$bg_text" in
+    "nothing running or scheduled") bg_text="$ho_text" ;;
+    *) bg_text="$bg_text | $ho_text" ;;
+  esac
+fi
 bg_text=$(printf '%s' "$bg_text" | redact_text | tr '\n' ' ')
 [ -n "${bg_text// /}" ] || bg_text="background list unavailable"
 

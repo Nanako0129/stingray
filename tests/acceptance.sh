@@ -128,6 +128,31 @@ check "9  background_tasks key absent → pass" \
   "$(mk "$WATCH_PLAIN" '[]' sess-9 | jq -c 'del(.background_tasks)')" 0 "-" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
+# 8.1–8.3. A handoff to another Claude session is a mechanism too: SendMessage
+#     to it, and no <cross-session-message> back from it yet. The records below
+#     have the shapes read from a real transcript (hooks/handoffs.jq).
+ho_send() {  # ho_send <tool_use id> <to> <tool_result text>
+  jq -cn --arg id "$1" --arg to "$2" '{type:"assistant",message:{content:[{type:"tool_use",id:$id,name:"SendMessage",input:{to:$to,message:"please report back when the PR is open"}}]}}'
+  jq -cn --arg id "$1" --arg t "$3" '{type:"user",message:{content:[{type:"tool_result",tool_use_id:$id,content:[{type:"text",text:$t}]}]}}'
+}
+ho_reply() {  # ho_reply <from-name>
+  jq -cn --arg n "$1" '{type:"attachment",attachment:{type:"queued_command",prompt:("<cross-session-message from=\"uds:/tmp/cc-socks/1.sock\" from-name=\"" + $n + "\" from-mode=\"prompting\">\nPR opened.\n</cross-session-message>")}}'
+}
+HO_CROSS='{"success":true,"message":"“please report back” → win-94 (another Claude session)"}'
+HO_SUB='{"success":true,"message":"Message queued for delivery to a8a80a1b at its next tool round."}'
+ho_send toolu_H1 win-94 "$HO_CROSS" >"$TMP/ho-pending.jsonl"
+{ ho_send toolu_H1 win-94 "$HO_CROSS"; ho_reply win-94; } >"$TMP/ho-answered.jsonl"
+ho_send toolu_H3 a8a80a1b "$HO_SUB" >"$TMP/ho-subagent.jsonl"
+HANDED='已交給 Windows session，等它回報 PR 開好，我再接著寫 #45 的更新。'
+ho_mk() { mk "$HANDED" '[]' "$2" | jq -c --arg t "$1" '.transcript_path = $t'; }
+
+check "8.1 handoff awaiting a reply → pass" "$(ho_mk "$TMP/ho-pending.jsonl" sess-h1)" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+check "8.2 handoff already answered → block" "$(ho_mk "$TMP/ho-answered.jsonl" sess-h2)" 2 "nothing is running" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+check "8.3 message to a subagent is not a handoff → block" "$(ho_mk "$TMP/ho-subagent.jsonl" sess-h3)" 2 "nothing is running" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+
 # 10. No monitoring claim at all: shape 3 is silent.
 check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]' sess-10)" 0 "-" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${ZEROS[@]}"

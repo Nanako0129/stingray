@@ -51,8 +51,10 @@ claude：  〔改設定、跑測試〕
 
 形狀 3 請 Jev 判斷最後一則訊息是否承諾要盯著某個外部結果，或宣稱它設下的監看正在進行（`watch_claim`），再拿這個答案對照本機計算的數字：
 
-- **沒有東西在跑：** 執行中的背景工作數加上 `session_crons` 數**等於 0**。承諾背後什麼都沒有，開了 `STINGRAY_SHAPE3=1` 就攔下。
+- **沒有東西在跑：** 執行中的背景工作數、`session_crons` 數，加上交給其他 Claude session、還在等回覆的交辦數，總和**等於 0**。承諾背後什麼都沒有，開了 `STINGRAY_SHAPE3=1` 就攔下。
 - **有東西在跑：** 計數**大於 0**，但這不代表在跑的就是承諾要盯的那個──背景在跑建置，承諾盯的卻是 PR 審查，數字一樣大於 0。這點也問 Jev（`watch_mismatch`，同一次請求），而且只有開了 `STINGRAY_SHAPE3_JUDGE=1` 才會攔。
+
+交辦指的是用 `SendMessage` 送給另一個 Claude session（結果會寫明對象是另一個 session），而 transcript 裡在那之後還沒有那個 session 發回的 `<cross-session-message>`。「已交給 Windows session，等它回報」曾經在真的這樣交辦過的一輪被攔下，因為 Stop 的 payload 裡，兩份清單都看不到「已送出、等回覆」的訊息。送給同一個 session 內 subagent 的訊息不算：執行中的 subagent 本來就算背景工作。
 
 計數是確定的；有沒有承諾是判斷。0.3.0 以前這部分是一組正規表達式，它讀的是主題而不是承諾：只是**引用**「keep an eye on」這幾個字的回覆會把自己攔下，而「I'll keep monitoring the build」以及任何日文、韓文的承諾都抓不到。在 `tests/watch-fixture.tsv` 的 50 則標好答案的句子上（包含每一句曾經誤攔真實對話的；原文屬於私人 session 的，改用合成的替身），承諾都在 0.68 以上，其他都在 0.20 以下，「keep an eye on the review」則落在門檻上。
 
@@ -195,7 +197,7 @@ command -v jq || sudo apt install jq  # Debian/Ubuntu
 |---|---|
 | `final_text` | 助理最後一則訊息，經遮蔽後截斷至最後 2400 **位元組**──約 800 個中文字，但純 ASCII 約為 2400 字元。英文對話送出的字元量約為基準量測情境的三倍。 |
 | `tools` | 本輪呼叫的工具**名稱**與次數，不含任何參數。 |
-| `background` | 背景工作的狀態與**描述**；排程 cron 的**指令提示**（prompt）。兩者與訊息走相同遮蔽管線，並預先過濾憑證特徵。命令列指令一律不送出。 |
+| `background` | 背景工作的狀態與**描述**；排程 cron 的**指令提示**（prompt）。兩者與訊息走相同遮蔽管線，並預先過濾憑證特徵。命令列指令一律不送出。還在等回覆的交辦只送對方 session 的**名稱**，不送訊息內容。 |
 | `language` | 設定的語言，以名稱送出──只在語言題上，那一題只帶這個與 `final_text`，不帶其他東西。這一題的 `final_text` 會先把「簡體中文」「English」這類語言名稱換成 `〔語言〕`。 |
 
 使用者輸入給 Claude 的 prompt 絕不傳送。工具參數、檔案內容、diff 與終端機指令亦絕不傳送。
@@ -277,6 +279,8 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 
 只開 `STINGRAY_SHAPE3=1` 或 `STINGRAY_LANG=1` 時，每一輪只要有東西要問，也會多這一次往返；在 0.3.0、0.2.0 以前則分別完全沒有。只帶一個題目的請求在 12 次呼叫中耗時 0.68–1.03 秒──這是直接用相同格式的請求打端點量的，不是在 hook 執行點量的；透過出貨的 hook 則是 0.70–0.99 秒。開了多個開關時，各自的題目共用同一次請求，不會多一次往返。
 
+開了 `STINGRAY_SHAPE3=1` 時，hook 還會在本機、送出請求之前讀 transcript 找交辦：55 MB 的 transcript 在 load average 14 下花 0.32–0.72 秒。
+
 ## 迴圈防護
 
 具備兩道獨立防禦機制，避免單一布林值失效而導致對話無窮迴圈：
@@ -286,6 +290,8 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 
 ## 已知限制
 
+- 交辦在對方回覆前都會算數。如果對方一直沒回，這個 session 剩下的時間裡，形狀 3 都會把那個承諾當成有機制在等。
+- 交辦偵測依賴 2026-09-26 觀察到的 Claude Code transcript 格式：`SendMessage` 的結果寫著「another Claude session」，回覆以 `<cross-session-message … from-name="…">` 送達。格式改變的話就看不到交辦，這類回合會跟以前一樣被攔。
 - `questions.json` 內的判斷標準以繁體中文撰寫，此為測得 81.8% 這個數字的語料基礎。英文標準未經實測驗證，任意替換將導致該準確率指標失效。在英文環境使用需重寫題本並重新校準。
 - 形狀 3 的對應判斷無法離線量測：`background_tasks` 欄位只存在於 hook 執行當下，無法從 transcript 重建。承諾判斷則可以量，也量了──見 `tests/watch-fixture.sh`。
 - 形狀 3 看不見和檔案路徑寫在同一行的承諾。遮蔽會在 Jev 讀到之前刪掉那一行，刪完如果沒剩任何文字，這一輪根本不會被問。透過出貨的 hook 實測：「我會盯著 src/main.rs 的 CI 結果」沒有被問；同樣的承諾把路徑放到另一行，就以 0.97 被攔下。它取代的正規表達式讀的是原文、看得見這種寫法；這是這次唯一放棄的東西。
@@ -321,7 +327,8 @@ stingray/
 ├── hooks/
 │   ├── hooks.json               # Stop hook 註冊設定，明定逾時時間
 │   ├── stingray.sh              # 完整邏輯：各種形狀、資料遮蔽、fail-open 路徑、提示字串
-│   └── turn-tools.jq            # 從 transcript 切出單一對話輪次
+│   ├── turn-tools.jq            # 從 transcript 切出單一對話輪次
+│   └── handoffs.jq              # 交給其他 session、還在等回覆的交辦
 ├── questions.json               # 五道 Jev 判斷標準──分類器契約，釘死 jev-1.13.0
 └── tests/
     ├── acceptance.sh            # 離線執行實際 hook：不需 key、不連網

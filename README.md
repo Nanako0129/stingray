@@ -51,8 +51,10 @@ claude:  [edits the config, runs the suite]
 
 Shape 3 asks Jev whether the final message promises to watch an external result, or says a watch it set up is running (`watch_claim`), and acts on the answer against a count it makes locally:
 
-- **Nothing running:** running background tasks plus `session_crons` **equals 0**. A promise with nothing behind it blocks on `STINGRAY_SHAPE3=1`.
+- **Nothing running:** running background tasks, plus `session_crons`, plus handoffs to another Claude session still waiting for an answer, **equals 0**. A promise with nothing behind it blocks on `STINGRAY_SHAPE3=1`.
 - **Something running:** the count **is greater than 0**, which does not say whether the running work is what was promised — a background build satisfies it while a promised PR review goes unwatched. Jev is asked that too (`watch_mismatch`, in the same request), and it blocks only on `STINGRAY_SHAPE3_JUDGE=1`.
+
+A handoff is a `SendMessage` to another Claude session (its result says so) with no `<cross-session-message>` from that session after it in the transcript. "Handed to the Windows session, waiting for it to report" blocked a real turn that had done exactly that, because neither list in the Stop payload shows a message waiting for its answer. A message to an in-process subagent is not counted; a running subagent is already background work.
 
 The count is exact; the promise is a judgement. It was a set of regular expressions until 0.3.0, and those read topic rather than commitment: a reply that merely quoted the phrase "keep an eye on" blocked itself, while "I'll keep monitoring the build" and any promise in Japanese or Korean passed unseen. On the 50 labelled lines of `tests/watch-fixture.tsv` — including every sentence that once blocked a real turn by mistake, or a synthetic stand-in where the original was private — the promises score 0.68 and above, the rest 0.20 and below, and "keep an eye on the review" sits at the threshold.
 
@@ -195,7 +197,7 @@ Only these fields are transmitted, and only when an API key is configured:
 |---|---|
 | `final_text` | The last assistant message, redacted, then truncated to the last 2400 **bytes** — roughly 800 CJK characters, but approximately 2400 ASCII characters. An English turn transmits roughly three times the character volume used in benchmark evaluations. |
 | `tools` | Tool **names** and invocation counts for this turn, excluding arguments. |
-| `background` | For each background task: status and **description**. For each scheduled cron: the assigned **prompt**. Both undergo message redaction after stripping credential patterns. Command lines are never sent. |
+| `background` | For each background task: status and **description**. For each scheduled cron: the assigned **prompt**. Both undergo message redaction after stripping credential patterns. Command lines are never sent. For a handoff still waiting, the other session's **name** only, never the message. |
 | `language` | The configured language, as a name — on the language question only, which carries this and `final_text` and nothing else. Its `final_text` has language names such as 簡體中文 or English replaced by `〔語言〕`. |
 
 User prompts sent to Claude are never transmitted. Tool arguments, file contents, diffs, and executed command lines are never transmitted.
@@ -277,6 +279,8 @@ This budget covers healthy endpoints. When an endpoint hangs, execution waits un
 
 With `STINGRAY_SHAPE3=1` or `STINGRAY_LANG=1` alone, every turn with something to ask about makes this round trip too, where until 0.2.0 or 0.3.0 respectively it made none. A request carrying one question took 0.68–1.03s across 12 calls, measured by calling the endpoint directly with the same request shape rather than at hook position; through the shipped hook, 0.70–0.99s. With several switches on, their questions share one request, adding no round trip.
 
+With `STINGRAY_SHAPE3=1` the hook also reads the transcript for handoffs, locally and before the request: 0.32–0.72s on a 55 MB transcript at load average 14.
+
 ## Loop protection
 
 Two distinct guards prevent execution loops, avoiding single points of failure:
@@ -286,6 +290,8 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 
 ## Known limits
 
+- A handoff counts until its target answers. If the other session never answers, shape 3 treats that promise as covered for the rest of the session.
+- Handoff detection reads the transcript format of Claude Code as observed on 2026-09-26: the `SendMessage` result saying "another Claude session", and the answer arriving as `<cross-session-message … from-name="…">`. If that format changes, handoffs stop being seen and such turns block as before.
 - Criteria in `questions.json` are written in Traditional Chinese, matching the corpus used for the 81.8% benchmark. English criteria have zero live measurements; replacing them voids that accuracy figure. Working in English requires rewriting criteria and recalibrating thresholds.
 - Shape 3's correspondence cannot be measured offline: `background_tasks` exists only at hook execution and cannot be reconstructed from saved transcripts. Its promise judgement can, and is — see `tests/watch-fixture.sh`.
 - Shape 3 cannot see a promise written on the same line as a file path. Redaction drops that line before Jev reads the message, and when nothing else is left the turn is not asked about at all. Measured through the shipped hook: "我會盯著 src/main.rs 的 CI 結果" was not asked about, while the same promise with the path on its own line was blocked at 0.97. The regular expression it replaced read the raw message and did see it; this is the one thing given up.
@@ -321,7 +327,8 @@ stingray/
 ├── hooks/
 │   ├── hooks.json               # Stop hook registration, explicit timeout
 │   ├── stingray.sh              # the whole thing: shapes, redaction, fail-open paths, nudge
-│   └── turn-tools.jq            # slice one turn out of the transcript
+│   ├── turn-tools.jq            # slice one turn out of the transcript
+│   └── handoffs.jq              # handoffs to another session still waiting for an answer
 ├── questions.json               # the five Jev questions — the classifier's contract, pinned to jev-1.13.0
 └── tests/
     ├── acceptance.sh            # drives the real hook against local stubs; no key, no network
