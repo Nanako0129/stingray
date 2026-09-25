@@ -411,10 +411,12 @@ redacted=$(printf '%s' "$redacted" | tail -c 2400)   # ~800 CJK characters
 # the false positives (0.62–0.91) and cost the Korean reply (0.56 → 0.40). What
 # the question judges is the script and wording, which the names are not. Only
 # wrong_language gets this text; shapes 1 and 2 keep their measured input.
+# The English names are bounded by Latin letters, not \b: Perl counts a Han
+# character as a word character, so \b found no boundary in "English版".
 mask_language_names() {
   perl -CSD -Mutf8 -pe '
     s/繁體中文|繁体中文|簡體中文|简体中文|簡体中文|正體中文|中文|英文|日文|日語|日语|韓文|韓語|韩语|간체\s*중국어|번체\s*중국어|중국어|영어|일본어/〔語言〕/g;
-    s/\b(?:simplified\s+chinese|traditional\s+chinese|chinese|english|japanese|korean)\b/〔語言〕/gi'
+    s/(?<![A-Za-z])(?:simplified\s+chinese|traditional\s+chinese|chinese|english|japanese|korean)(?![A-Za-z])/〔語言〕/gi'
 }
 lang_text=""
 [ "$lang_ask" = "1" ] && lang_text=$(printf '%s' "$redacted" | mask_language_names)

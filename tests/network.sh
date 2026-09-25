@@ -286,7 +286,7 @@ l3=$(jq -c '{q: (.questions | keys), na: (.questions.no_action.instructions | ha
 #     questions do not. A zh-TW reply that only mentions 簡體中文 was judged to be
 #     written in it and blocked three turns in a row. no_action keeps the words,
 #     because its measured input is the redacted message and nothing else.
-LNAMES='簡體中文那一段已經合併了，English 版的 README 也更新好，接下來我會整理日文翻譯的清單給你確認。'
+LNAMES='簡體中文那一段已經合併了，English版的 README 也更新好，接下來我會整理日文翻譯的清單給你確認。'
 rm -f "$TMP/captured-record"; start_stub record
 run_lang "$TMP/l31" "$(mkl "$LNAMES" net-l31)" STINGRAY=1 STINGRAY_LANG=1; rc=$?
 kill "$STUB_PID" 2>/dev/null; STUB_PID=
