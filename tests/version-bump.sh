@@ -10,12 +10,10 @@
 # change shipped under an unchanged version does not reach any existing
 # install, and the tool reports success while it happens.
 #
-# Scope is everything an install actually receives: the hook, the question set,
-# and the manifest itself. The manifest is included because the plugin manager
-# shows its metadata and refreshes it on the same version-pinned path, so a
-# description edit under an unchanged version is stale for the same reason a
-# hook edit is. A README or workflow change ships nothing and needs no bump; a
-# guard firing on those would be edited around rather than obeyed.
+# Scope is both installed plugins: the shared hook and questions, plus each
+# platform's manifest and hook registration. Both marketplaces use the same
+# version, so a Codex-only change needs a version bump too. README and workflow
+# changes ship no runtime behavior and need no bump.
 set -uo pipefail
 
 BASE="${1:-}"
@@ -25,7 +23,7 @@ BASE="${1:-}"
 # indistinguishable from "nothing changed" unless the status is read. Silently
 # skipping the check is the failure direction this guard exists to prevent.
 if ! changed=$(git diff --name-only "$BASE"...HEAD -- \
-     .claude-plugin/plugin.json hooks questions.json); then
+     .claude-plugin/plugin.json .codex-plugin/plugin.json hooks questions.json); then
   echo "version-bump: cannot resolve base ref '$BASE'" >&2
   exit 2
 fi
@@ -36,10 +34,16 @@ if [ -z "$changed" ]; then
 fi
 
 head_v=$(jq -r '.version // empty' .claude-plugin/plugin.json 2>/dev/null)
+codex_v=$(jq -r '.version // empty' .codex-plugin/plugin.json 2>/dev/null)
 base_v=$(git show "$BASE:.claude-plugin/plugin.json" 2>/dev/null | jq -r '.version // empty')
 
 if [ -z "$head_v" ]; then
   echo "version-bump: .claude-plugin/plugin.json has no .version" >&2
+  exit 1
+fi
+
+if [ "$codex_v" != "$head_v" ]; then
+  echo "version-bump: Codex version '$codex_v' must match Claude version '$head_v'" >&2
   exit 1
 fi
 

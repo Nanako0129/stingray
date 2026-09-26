@@ -1,0 +1,17 @@
+{
+  "description": "stingray — nudge Codex back to work when a turn stops half-done.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash \"${PLUGIN_ROOT}/hooks/stingray-codex.sh\"",
+            "commandWindows": "sh.exe \"${PLUGIN_ROOT}/hooks/stingray-codex.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

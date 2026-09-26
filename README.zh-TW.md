@@ -119,6 +119,36 @@ claude plugin list | grep stingray
 tail -f ~/.local/state/stingray/decisions.jsonl   # 形狀 3 攔下收尾前也會寫入
 ```
 
+### Codex plugin
+
+建議直接從 GitHub marketplace 安裝 Codex hook：
+
+```bash
+codex plugin marketplace add Nanako0129/stingray
+codex plugin add stingray@stingray
+```
+
+根目錄的 `.codex-plugin/plugin.json` 明確指定 `hooks/hooks.codex.json`，
+所以 Codex 不會載入 Claude 的 `hooks/hooks.json`。兩份 manifest 使用相同
+版本，CI 會檢查一致；Git tag 本身就包含該版本的兩種 plugin，不需另外附 ZIP。
+更新時執行 `codex plugin marketplace upgrade stingray`，再執行
+`codex plugin add stingray@stingray`。
+
+安裝或更新後請開新 Codex session。啟用前先用 `/hooks` 檢查並信任下載的
+Stop hook，因為它會在本機執行 shell 指令。安裝本身不會啟用 Stingray 檢查。
+請在 **Codex 程序的環境變數**設定 `STINGRAY`、`STINGRAY_SHAPE3` 或
+`STINGRAY_SHADOW`，並提供 `TYPESAFE_API_KEY` 或
+`~/.config/typesafe/api_key`。從 v0.3.0 起，形狀 3 也需要 key，並會把遮蔽過的
+最後訊息送到 TypeSafe；在 shell 裡設定環境變數，不會影響已在執行的 Codex
+桌面程序。目前 Codex Stop payload 若未提供背景工作狀態，形狀 3 會視為未知，
+不會用這項檢查攔阻。
+
+在 Codex 裡，形狀 1、2 是在看不到這一輪工具清單的情況下判斷的：payload 沒有可用來切
+transcript 的 `prompt_id`，所以 hook 送出的是「這一輪的工具清單無法取得」，而不是
+「沒有呼叫任何工具」。用 5 則已完成工作的回覆實測：沒有一則被攔，但 `no_action`
+從有工具清單時的 0.06–0.15 升到沒有時的 0.32–0.38，門檻 τ = 0.5。81.8% 不涵蓋
+Codex；在 Codex 請先從 `STINGRAY_SHADOW=1` 開始。
+
 ### 手動串接 hook
 
 亦可直接以 shell 腳本形式掛載：
