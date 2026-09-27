@@ -1,6 +1,6 @@
 {
   "name": "stingray",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Stop hook that catches a turn stopping half-done and pushes Codex back to finish it.",
   "author": {
     "name": "Nanako0129",
