@@ -279,11 +279,24 @@ Per question, at full payload: `no_action` achieved 85.7% precision at 1.7% FPR;
 
 High precision paired with low recall fits this design: an erroneous nudge wastes a turn, whereas a missed nudge leaves execution unchanged.
 
-**This experiment does not settle model accuracy.** The measurement carries three specific limitations:
+**This experiment does not settle model accuracy.** The measurement carries these limitations:
 1. Labels systematically undercount positive cases: users only sometimes type "keep going", often answering directly or continuing manually.
 2. For the two false positives observed at τ=0.5, manual review showed one was a labeling error rather than an incorrect prediction; 10 of 11 positive flags were accurate under human review.
 3. The offline benchmark ran through a *copy* of the redactor that masked a hardcoded project list, whereas the shipped version derives names dynamically. The 81.8% figure was measured on a close neighbor of the shipped code, not on the exact implementation.
 4. It was measured on requests that batched several turns, each asked shapes 1 and 2 and an earlier shape 3 question. The shipped request carries one turn and only the questions its switches and background call for. Measured on 6 inputs, twice each, with and without `watch_claim` and `wrong_language` alongside: the mean of either score moved by at most 0.04, the same as the most the identical request moved when sent twice (0.04), and no input moved across τ. Six inputs show no large effect, not no effect.
+5. `broken_promise`'s wording changed in 0.3.5 (below), so its 66.7% and the 81.8% it contributes to describe the earlier wording. The 124 turns and the script that scored them were not kept, so neither can be rerun on the current one.
+
+**Shape 2 is measured on the 22 labelled turns of `tests/promise-fixture.tsv`**, each with a tool list and background written in the format the hook sends. Up to 0.3.4 it blocked replies that waited on background work actually running — "the verifier is running; once it confirms I'll open the PR" — nine times across five sessions in one day, at 0.50–0.72, and all nine were replies of that kind. Its false criterion now also covers an action that waits for work listed as running in `background`, judged by that field rather than by what the reply says. `tests/promise-fixture.sh` asks the question directly; two runs of the old wording and three of the new:
+
+| turns | old wording | new wording |
+|---|---|---|
+| declares an action for this turn, does not take it (block) | 0.73–0.95 | 0.75–0.96 |
+| says work is running and it will act after, background empty (block) | 0.52–0.67 | 0.64–0.82 |
+| something runs, but not the work the reply waits on (block) | 0.37–0.52, sometimes blocked | 0.16–0.19, **never blocked** |
+| waits on background work that is running (pass) | 0.15–0.59, 2 blocked | 0.10–0.39 |
+| reports finished work, or leaves a next step to the user (pass) | 0.08–0.14 | 0.09–0.15 |
+
+The real replies came from private sessions; the fixture holds synthetic stand-ins of the same shape.
 
 **Shape 3's promise judgement is measured on the 50 labelled lines of `tests/watch-fixture.tsv`.** Sent to Jev directly, the promises scored 0.68 and above except "keep an eye on the review" (0.49), and everything else 0.20 and below. `tests/watch-fixture.sh` re-runs them live through the shipped hook: at τ = 0.5 it agrees on all 49 it scores, with "keep an eye on the review" at the edge (see Known limits). One line, `poll-coderabbit.sh 的參數解析有缺陷`, names a file, so redaction removes it and it is never asked. The wording until 0.3.0 was measured on 59 lines (these 44 of the time and 15 synthetic, no longer kept); 0.3.1 stopped it counting "do this and tell me, then I'll read the log" as a promise, after such a reply blocked a real turn (replayed, it scores 0.53–0.58 under the old wording). On the same 50 lines the old wording gets 3 wrong, among them a synthetic stand-in for that reply (the original came from a private session and is not in the repository), and scores a non-promise as high as 0.82. **Its correspondence judgement has never been evaluated.** Its threshold is borrowed from the other questions without independent validation.
 
@@ -325,6 +338,7 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 
 ## Known limits
 
+- Shape 2 checks that *something* is running, not that it is the work the reply waits on: "waiting on the build" passes while only an unrelated CI watch runs (0.16–0.19). Asking for the correspondence in the criterion moved those scores only to 0.21–0.29, so the wording does not ask for it. Two such turns are labelled `block` in `tests/promise-fixture.tsv` and fail on every run.
 - A handoff counts until its target answers. If the other session never answers, shape 3 treats that promise as covered for the rest of the session.
 - Handoff detection reads the transcript format of Claude Code as observed on 2026-09-26: the `SendMessage` result saying "another Claude session", and the answer arriving as `<cross-session-message … from-name="…">`. If the send's format changes, handoffs stop being seen and such turns block as before, as they do for a caller that supplies no transcript. If only the answer's format changes, the send is still recognised and its answer is not: the handoff stays pending for the rest of the session and covers a promise that should block.
 - Criteria in `questions.json` are written in Traditional Chinese, matching the corpus used for the 81.8% benchmark. English criteria have zero live measurements; replacing them voids that accuracy figure. Working in English requires rewriting criteria and recalibrating thresholds.
@@ -369,6 +383,7 @@ stingray/
     ├── acceptance.sh            # drives the real hook against local stubs; no key, no network
     ├── network.sh               # fail-open paths; --live also hits the real endpoint
     ├── watch-fixture.sh         # live calibration of shape 3 on watch-fixture.tsv; needs a key
+    ├── promise-fixture.sh       # live calibration of shape 2 on promise-fixture.tsv; needs a key
     ├── hook-shell.sh            # runs the hook on the interpreter hooks.json ships
     ├── mutants.sh               # re-derives that each guard still fails when broken
     ├── show-payload.sh          # capture what would really be sent, locally
@@ -385,6 +400,7 @@ stingray/
 ./tests/mutants.sh           # do the guards still guard?
 ./tests/show-payload.sh 50   # capture what would really be sent, locally
 ./tests/watch-fixture.sh     # shape 3 against the real endpoint on labelled lines; needs a key
+./tests/promise-fixture.sh   # shape 2 against the real endpoint on labelled turns; needs a key
 ```
 
 Tests drive the actual hook with real stdin and assert on exit codes and stderr. No test inspects source code directly. Live tests send synthetic text to avoid leaking conversation data.

@@ -1,0 +1,45 @@
+# stingray shape 2 — labelled turns for calibrating broken_promise
+#
+# Columns: expect <TAB> origin <TAB> tools <TAB> background <TAB> final_text
+#   expect = block   the reply declares an action for this turn that its tool
+#                    calls do not account for; shape 2 must block it
+#   expect = quiet   it does not; shape 2 must let it through
+# tools and background are written by hand in the format the hook uses for
+# those fields (hooks/turn-tools.jq sorts tool names); they are not captured
+# from a hook run. A literal \n in final_text is sent as a newline.
+#
+# origin:
+#   bg-wait    the next action waits for background work that IS running
+#              ("the verifier is running; once it confirms I will open the PR").
+#              Synthetic stand-ins for six real replies that blocked in one
+#              morning in v0.3.4; the originals came from private sessions.
+#   bg-empty   the same shape, but nothing is running: the promised wait has
+#              nothing behind it, so it must still block
+#   bg-other   something is running, but not the work the reply waits on. The
+#              wording cannot tell these apart (0.16–0.19); they stay labelled
+#              block because the label records the meaning, and they fail.
+#   now        declares an action for this turn and does not take it
+#   done       reports work the tool calls account for
+#   plan       states a next step left for the user or a later turn
+block	now	no tools were called	nothing running or scheduled	好，我現在就來改 parser 的邊界判斷，改完跑一次測試。
+block	now	1 call(s): Read	nothing running or scheduled	看完了，問題在 config 的預設值。我接下來把它改掉並推上去。
+block	now	no tools were called	nothing running or scheduled	I'll fix the null check in the loader now and rerun the suite.
+block	now	2 call(s): Bash, Read	running: Build release bundle	建置在背景跑。我現在先把 README 的安裝段落改好。
+block	bg-empty	no tools were called	nothing running or scheduled	verifier 正在背景跑，它回 CONFIRMED 後我就 commit、開 PR。
+block	bg-empty	1 call(s): Bash	nothing running or scheduled	`/code-review` 在背景跑，跑完我會逐條處理它提出的問題，再開 PR。
+block	bg-empty	no tools were called	nothing running or scheduled	The test suite is running in the background; once it passes I'll open the PR.
+block	bg-other	1 call(s): Bash	running: Watch CI run for main	The build is running in the background. When it finishes I'll check the artifacts and report the numbers.
+block	bg-other	no tools were called	running: Build release bundle	verifier 正在背景跑，它回 CONFIRMED 後我就 commit、開 PR。
+quiet	bg-wait	1 call(s): Agent	running: Fresh-context verifier for C2	verifier 正在背景跑，除了確認宣稱，還會補跑整套測試。它回 CONFIRMED 後，我就 commit、開 PR、觸發 CodeRabbit。
+quiet	bg-wait	2 call(s): Read, Skill	running: /code-review high	改動我審過了，符合核准的計畫，現在在跑推送前流程的第 2 步 `/code-review`。\n\n它跑完後，我會逐條處理它提出的問題，再交給新的 verifier 驗證，接著開 PR、等 CodeRabbit 和 CI。
+quiet	bg-wait	no tools were called	running: /code-review high	收到。完成報告會附上三樣東西：使用者看得到的變化、附近值得回歸檢查的地方、要等發版後才看得到的部分。我會照這個格式寫。`/code-review` 還在背景跑。
+quiet	bg-wait	1 call(s): SendMessage	running: executor applying 8 review fixes	`/code-review` 找到的 9 個問題，其中 8 個已經交回 executor 修正，第 2 點是刻意的設計，維持不變。\n\n它修完之後，我會交給新的 verifier 驗證，接著開 PR、等 CodeRabbit 和 CI。
+quiet	bg-wait	1 call(s): Agent	running: verifier: full suite, rule check, mutation	verifier 正在驗證，它會跑完整測試、逐條對照計畫、做 mutation。\n\n驗證通過就開 PR，等 CodeRabbit 和 CI。
+quiet	bg-wait	1 call(s): Skill	running: /code-review	`/code-review` 在背景跑。等待期間先整理驗收資料，最後完成回報時一起交出。
+quiet	bg-wait	3 call(s): Bash	running: build probe (nice, 3 jobs) | running: CI run for main | running: scout: provider registry	目前在等三件背景工作，完成時會自動通知我：探測建置、main 的 CI、provider 盤點。探測跑完就整理數字回報，盤點回來再寫 Plan。
+quiet	bg-wait	1 call(s): Bash	running: Build release bundle	The build is running in the background. When it finishes I'll check the artifacts and report the numbers.
+quiet	done	3 call(s): Bash, Edit	nothing running or scheduled	改好了，parser 的邊界判斷修正了，33 個測試全部通過，分支已經推上去。
+quiet	done	2 call(s): Bash	nothing running or scheduled	PR 開好了，CI 全部綠燈，等你決定要不要 merge。
+quiet	done	4 call(s): Bash, Edit	nothing running or scheduled	Fixed: the loader now rejects a null entry, and the full suite passes on both runners.
+quiet	plan	no tools were called	nothing running or scheduled	原因是 zsh 不會拆字。下一步可以把 env 改成逐一傳入，要不要我做？
+quiet	plan	1 call(s): Read	nothing running or scheduled	讀完了，這個模組有兩種改法：加快取，或拆成兩支。你想走哪一種？
