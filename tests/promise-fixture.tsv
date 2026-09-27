@@ -4,8 +4,9 @@
 #   expect = block   the reply declares an action for this turn that its tool
 #                    calls do not account for; shape 2 must block it
 #   expect = quiet   it does not; shape 2 must let it through
-# tools and background are the strings the hook sends in those fields. A
-# literal \n in final_text is sent as a newline.
+# tools and background are written by hand in the format the hook uses for
+# those fields (hooks/turn-tools.jq sorts tool names); they are not captured
+# from a hook run. A literal \n in final_text is sent as a newline.
 #
 # origin:
 #   bg-wait    the next action waits for background work that IS running
@@ -39,6 +40,6 @@ quiet	bg-wait	3 call(s): Bash	running: build probe (nice, 3 jobs) | running: CI 
 quiet	bg-wait	1 call(s): Bash	running: Build release bundle	The build is running in the background. When it finishes I'll check the artifacts and report the numbers.
 quiet	done	3 call(s): Bash, Edit	nothing running or scheduled	改好了，parser 的邊界判斷修正了，33 個測試全部通過，分支已經推上去。
 quiet	done	2 call(s): Bash	nothing running or scheduled	PR 開好了，CI 全部綠燈，等你決定要不要 merge。
-quiet	done	4 call(s): Edit, Bash	nothing running or scheduled	Fixed: the loader now rejects a null entry, and the full suite passes on both runners.
+quiet	done	4 call(s): Bash, Edit	nothing running or scheduled	Fixed: the loader now rejects a null entry, and the full suite passes on both runners.
 quiet	plan	no tools were called	nothing running or scheduled	原因是 zsh 不會拆字。下一步可以把 env 改成逐一傳入，要不要我做？
 quiet	plan	1 call(s): Read	nothing running or scheduled	讀完了，這個模組有兩種改法：加快取，或拆成兩支。你想走哪一種？

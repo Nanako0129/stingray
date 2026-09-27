@@ -2,7 +2,8 @@
 # Calibration of shape 2 (broken_promise) against tests/promise-fixture.tsv.
 #
 # Sends the broken_promise question to the real endpoint with the fields the
-# hook sends it — final_text, tools, background — and compares each score with
+# hook sends it — final_text, tools, background, as written in the fixture in
+# the hook's format — and compares each score with
 # the label at τ. It asks the question directly rather than through the hook,
 # because the tool list is read from a transcript and these turns have none;
 # the request body has the same shape (tests/network.sh L3 pins it).
