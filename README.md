@@ -286,14 +286,15 @@ High precision paired with low recall fits this design: an erroneous nudge waste
 4. It was measured on requests that batched several turns, each asked shapes 1 and 2 and an earlier shape 3 question. The shipped request carries one turn and only the questions its switches and background call for. Measured on 6 inputs, twice each, with and without `watch_claim` and `wrong_language` alongside: the mean of either score moved by at most 0.04, the same as the most the identical request moved when sent twice (0.04), and no input moved across τ. Six inputs show no large effect, not no effect.
 5. `broken_promise`'s wording changed in 0.3.5 (below), so its 66.7% and the 81.8% it contributes to describe the earlier wording. The 124 turns and the script that scored them were not kept, so neither can be rerun on the current one.
 
-**Shape 2 is measured on the 20 labelled turns of `tests/promise-fixture.tsv`**, each with the tool list and background the hook would send. Up to 0.3.4 it blocked replies that waited on background work actually running — "the verifier is running; once it confirms I'll open the PR" — nine times across five sessions in one day, at 0.50–0.72, and all nine were replies of that kind. Its false criterion now also covers an action that waits for work listed as running in `background`, judged by that field rather than by what the reply says. `tests/promise-fixture.sh` asks the question directly; two runs of the old wording and three of the new:
+**Shape 2 is measured on the 22 labelled turns of `tests/promise-fixture.tsv`**, each with the tool list and background the hook would send. Up to 0.3.4 it blocked replies that waited on background work actually running — "the verifier is running; once it confirms I'll open the PR" — nine times across five sessions in one day, at 0.50–0.72, and all nine were replies of that kind. Its false criterion now also covers an action that waits for work listed as running in `background`, judged by that field rather than by what the reply says. `tests/promise-fixture.sh` asks the question directly; two runs of the old wording and three of the new:
 
 | turns | old wording | new wording |
 |---|---|---|
-| declares an action for this turn, does not take it (block) | 0.74–0.95 | 0.76–0.96 |
-| says work is running and it will act after, background empty (block) | 0.51–0.69 | 0.65–0.82 |
-| waits on background work that is running (pass) | 0.16–0.59, 2–3 blocked | 0.10–0.43 |
-| reports finished work, or leaves a next step to the user (pass) | 0.08–0.14 | 0.08–0.16 |
+| declares an action for this turn, does not take it (block) | 0.73–0.95 | 0.75–0.96 |
+| says work is running and it will act after, background empty (block) | 0.52–0.67 | 0.64–0.82 |
+| something runs, but not the work the reply waits on (block) | 0.37–0.52, sometimes blocked | 0.16–0.19, **never blocked** |
+| waits on background work that is running (pass) | 0.15–0.59, 2 blocked | 0.10–0.39 |
+| reports finished work, or leaves a next step to the user (pass) | 0.08–0.14 | 0.09–0.15 |
 
 The real replies came from private sessions; the fixture holds synthetic stand-ins of the same shape.
 
@@ -337,6 +338,7 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 
 ## Known limits
 
+- Shape 2 checks that *something* is running, not that it is the work the reply waits on: "waiting on the build" passes while only an unrelated CI watch runs (0.16–0.19). Asking for the correspondence in the criterion moved those scores only to 0.21–0.29, so the wording does not ask for it. Two such turns are labelled `block` in `tests/promise-fixture.tsv` and fail on every run.
 - A handoff counts until its target answers. If the other session never answers, shape 3 treats that promise as covered for the rest of the session.
 - Handoff detection reads the transcript format of Claude Code as observed on 2026-09-26: the `SendMessage` result saying "another Claude session", and the answer arriving as `<cross-session-message … from-name="…">`. If the send's format changes, handoffs stop being seen and such turns block as before, as they do for a caller that supplies no transcript. If only the answer's format changes, the send is still recognised and its answer is not: the handoff stays pending for the rest of the session and covers a promise that should block.
 - Criteria in `questions.json` are written in Traditional Chinese, matching the corpus used for the 81.8% benchmark. English criteria have zero live measurements; replacing them voids that accuracy figure. Working in English requires rewriting criteria and recalibrating thresholds.
