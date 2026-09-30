@@ -108,6 +108,12 @@ mutate "failed-scan-is-none" "8.5" \
   'handoffs=""; running=-1' \
   'handoffs=""'
 
+# Mutant 9 — the byte cut left as it was. A cut inside a character reaches the
+# language mask, which dies on it; case L11 is cut exactly there.
+mutate "cut-splits-char" "L11" \
+  ' | perl -0777 -pe '"'"'s/\A[\x80-\xBF]{1,3}//'"'"'' \
+  ''
+
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]
