@@ -174,6 +174,11 @@ Set the switches and `TYPESAFE_API_KEY` in the environment Grok is started
 from; hooks inherit it. State goes to Grok's plugin data directory unless
 `STINGRAY_STATE_DIR` is set.
 
+`STINGRAY_LANG` still reads `language` from Claude Code's settings: the
+workspace's `.claude/settings.local.json`, then `.claude/settings.json`, then
+`~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). Without one,
+`STINGRAY_LANG=1` does nothing under Grok.
+
 To skip a workspace, list it in `$GROK_HOME/stingray-deny` (default
 `~/.grok/stingray-deny`): one absolute path per line, covering that path and its
 subtree. A deny file that exists but cannot be read skips every workspace.
@@ -377,6 +382,7 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 - Under Grok, the tool list is read from Grok's session log, not from a hook per tool call: Grok's tool hooks carry no prompt id to tie a call to its turn.
 - Under Grok, every MCP tool call is listed as `use_tool`, the name Grok's log gives it.
 - Under Grok, a tool call not yet written to the session log when Stop fires is not counted, so the list can come up short.
+- Under Grok, the language check has no Grok-side setting: it takes `language` from Claude Code's settings files, and with none of them present `STINGRAY_LANG=1` checks nothing.
 - `network.sh --live` encountered an 8/9 result on a single test run; five subsequent reruns could not reproduce the failure, and the failing check was not identified. This occurrence is documented in test comments.
 
 ## Stop hook facts, measured not read

@@ -167,6 +167,11 @@ Claude 的 `hooks/hooks.json`。安裝即會啟用；安裝後請開新的 Grok 
 開關與 `TYPESAFE_API_KEY` 請設在啟動 Grok 的環境裡，hook 會繼承它。除非設了
 `STINGRAY_STATE_DIR`，狀態檔寫在 Grok 的 plugin 資料目錄。
 
+`STINGRAY_LANG` 仍從 Claude Code 的設定讀 `language`：依序是工作區的
+`.claude/settings.local.json`、`.claude/settings.json`，再來是
+`~/.claude/settings.json`（或 `$CLAUDE_CONFIG_DIR/settings.json`）。這些都沒有時，
+`STINGRAY_LANG=1` 在 Grok 底下不會有任何作用。
+
 要略過某個工作區，把它寫進 `$GROK_HOME/stingray-deny`（預設
 `~/.grok/stingray-deny`）：每行一個絕對路徑，涵蓋該路徑及其子目錄。檔案存在卻
 無法讀取時，所有工作區都會略過。
@@ -370,6 +375,7 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 - 在 Grok 裡，工具清單取自 Grok 的 session 紀錄，而不是每次工具呼叫的 hook：Grok 的工具 hook 沒有 prompt id，無法把呼叫對應到它所屬的那一輪。
 - 在 Grok 裡，所有 MCP 工具呼叫都列為 `use_tool`，這是 Grok 紀錄裡給它的名稱。
 - 在 Grok 裡，Stop 觸發時還沒寫進 session 紀錄的工具呼叫不會被算到，清單可能偏少。
+- 在 Grok 裡，語言檢查沒有 Grok 端的設定：`language` 取自 Claude Code 的設定檔，一個都沒有時，`STINGRAY_LANG=1` 什麼都不檢查。
 - `network.sh --live` 於某次測試曾出現 8/9 的結果；後續重複執行五次皆無法重現該錯誤，未能查明特定失敗項目。該紀錄已載於測試檔案註解。
 
 ## Stop hook 的實測契約
