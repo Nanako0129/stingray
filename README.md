@@ -157,9 +157,12 @@ does not cover Codex; start with `STINGRAY_SHADOW=1` there.
 ### Grok plugin
 
 ```bash
-grok plugin marketplace add Nanako0129/stingray
-grok plugin install stingray@stingray --trust
+grok plugin install Nanako0129/stingray --trust
 ```
+
+Grok reads the repository as a single plugin, not a marketplace, so install it
+directly. If stingray is already installed for Claude Code, Grok picks up that
+copy through its Claude Code compatibility and no Grok install is needed.
 
 `.grok-plugin/plugin.json` selects `hooks/hooks.grok.json`, so Grok does not
 load Claude's `hooks/hooks.json`. Installing enables the plugin; start a new
@@ -174,8 +177,9 @@ Set the switches and `TYPESAFE_API_KEY` in the environment Grok is started
 from; hooks inherit it. State goes to Grok's plugin data directory unless
 `STINGRAY_STATE_DIR` is set.
 
-`STINGRAY_LANG` still reads `language` from Claude Code's settings: the
-workspace's `.claude/settings.local.json`, then `.claude/settings.json`, then
+`STINGRAY_LANG` still reads `language` from Claude Code's settings:
+`.claude/settings.local.json`, then `.claude/settings.json`, in Grok's working
+directory (`cwd`, which need not be the workspace root), then
 `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). Without one,
 `STINGRAY_LANG=1` does nothing under Grok.
 
