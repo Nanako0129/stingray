@@ -1,0 +1,27 @@
+{
+  "description": "stingray — nudge Grok back to work when a turn stops half-done.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh -c 'cat >/dev/null'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash \"${GROK_PLUGIN_ROOT}/hooks/stingray-grok.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

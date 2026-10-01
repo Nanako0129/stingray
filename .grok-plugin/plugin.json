@@ -1,0 +1,14 @@
+{
+  "name": "stingray",
+  "version": "0.3.7",
+  "description": "Stop hook that catches a turn stopping half-done and pushes Grok back to finish it.",
+  "author": {
+    "name": "Nanako0129",
+    "url": "https://github.com/Nanako0129"
+  },
+  "homepage": "https://github.com/Nanako0129/stingray",
+  "repository": "https://github.com/Nanako0129/stingray",
+  "license": "MIT",
+  "keywords": ["stop-hook", "follow-through", "typesafe", "jev", "guardrail"],
+  "hooks": "./hooks/hooks.grok.json"
+}
