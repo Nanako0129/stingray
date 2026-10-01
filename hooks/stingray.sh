@@ -425,7 +425,15 @@ redact_text() {
 }
 
 redacted=$(printf '%s' "$last" | redact_text)
-redacted=$(printf '%s' "$redacted" | tail -c 2400)   # ~800 CJK characters
+# ~800 CJK characters. tail -c counts bytes, so the cut can land inside a
+# multi-byte character and leave its continuation bytes at the front; the perl
+# after it drops them, in byte mode so it cannot choke on them itself. Without
+# it, mask_language_names below (perl -CSD) dies on that first byte with
+# "Malformed UTF-8 character (fatal)" and prints nothing, and wrong_language is
+# asked about an empty final_text. Measured 2026-10-01 with /usr/bin/perl on
+# macOS, on '中' x 1000 + 'a': tail -c 2400 and 2402 gave 0 bytes, 2401 passed.
+# A real zh-TW reply cut that way was blocked at 0.55. See case L11.
+redacted=$(printf '%s' "$redacted" | tail -c 2400 | perl -0777 -pe 's/\A[\x80-\xBF]{1,3}//')
 
 # The language question sees language NAMES replaced by a placeholder. Asked
 # whether a reply is in 繁體中文, Jev reads a reply that merely mentions 簡體中文

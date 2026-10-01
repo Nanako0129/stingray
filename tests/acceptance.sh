@@ -334,6 +334,22 @@ else
   pass=$((pass+1)); printf '  ok    L10.1 nothing recorded for shape 3\n'
 fi
 
+# L11. A long zh-TW reply whose 2400-byte cut lands inside a character. Each
+#     sentence is 27 three-byte characters (81 bytes); 40 of them plus one 'x'
+#     make 3241 bytes, and 3241 - 2400 = 841 ≡ 1 (mod 3), so the kept tail
+#     starts on a continuation byte. Unfixed, the language mask died on it with
+#     a perl error on stderr and wrong_language went out with an empty
+#     final_text; a real reply cut that way was blocked at 0.55.
+LONG_ZH="$(for _ in $(seq 1 40); do printf '%s' '改好了，整套測試在兩個平台都通過，這個分支可以送審了。'; done)x"
+check "L11 long zh-TW reply cut mid-character → asked, no perl error" "$(mk "$LONG_ZH" '[]' sess-L11)" 0 "-" \
+  STINGRAY_LANG=1 CLAUDE_CONFIG_DIR="$CFG_ZH" "${ZEROS[@]}"
+if tail -n 1 "$TMP/captured-ZERO" 2>/dev/null \
+   | jq -e '.questions.wrong_language.instructions.final_text | length > 0' >/dev/null 2>&1; then
+  pass=$((pass+1)); printf '  ok    L11.1 wrong_language carried the reply text\n'
+else
+  fail=$((fail+1)); printf '  FAIL  L11.1 wrong_language went out with an empty final_text\n'
+fi
+
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]
