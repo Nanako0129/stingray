@@ -154,6 +154,30 @@ finished-work replies: none was blocked, but `no_action` rose from 0.06–0.15
 with the tool list to 0.32–0.38 without it, against τ = 0.5. The 81.8% figure
 does not cover Codex; start with `STINGRAY_SHADOW=1` there.
 
+### Grok plugin
+
+```bash
+grok plugin marketplace add Nanako0129/stingray
+grok plugin install stingray@stingray --trust
+```
+
+`.grok-plugin/plugin.json` selects `hooks/hooks.grok.json`, so Grok does not
+load Claude's `hooks/hooks.json`. Installing enables the plugin; start a new
+Grok session afterwards, as a running one keeps the hooks it loaded. The Stop
+hook maps Grok's payload onto `hooks/stingray.sh` and rebuilds the turn's tool
+list from Grok's session log. A no-op UserPromptSubmit hook is registered only
+so that Grok logs the turn-start record that list is cut from. Background tasks
+reach stingray as their type only, never their command line, and
+`STINGRAY_QUESTIONS` is ignored.
+
+Set the switches and `TYPESAFE_API_KEY` in the environment Grok is started
+from; hooks inherit it. State goes to Grok's plugin data directory unless
+`STINGRAY_STATE_DIR` is set.
+
+To skip a workspace, list it in `$GROK_HOME/stingray-deny` (default
+`~/.grok/stingray-deny`): one absolute path per line, covering that path and its
+subtree. A deny file that exists but cannot be read skips every workspace.
+
 ### Manual hook configuration
 
 The hook can be wired directly as a shell script:
@@ -350,6 +374,9 @@ Two distinct guards prevent execution loops, avoiding single points of failure:
 - Shape 4 does not reliably tell Simplified from Traditional Chinese: one Simplified reply against a zh-TW setting scored 0.29 in 0.2.0, while two in 0.3.2 blocked at 0.64 and 0.90.
 - A zh-TW reply about Simplified localisation that quotes Mainland terms (`「軟件」「用戶」`) still blocks, at 0.77–0.79: the placeholder removes the language's name, not the quoted words.
 - The harness writes its own English notices into the transcript as assistant text — "You've hit your session limit …", "API Error: Connection lost mid-response …". The hooks reference says a turn ending on an API error fires `StopFailure`, not `Stop`, which would keep them away from this hook. That is documented, not measured. If one does arrive, shape 4 judges it once and the re-entry guard stops a second.
+- Under Grok, the tool list is read from Grok's session log, not from a hook per tool call: Grok's tool hooks carry no prompt id to tie a call to its turn.
+- Under Grok, every MCP tool call is listed as `use_tool`, the name Grok's log gives it.
+- Under Grok, a tool call not yet written to the session log when Stop fires is not counted, so the list can come up short.
 - `network.sh --live` encountered an 8/9 result on a single test run; five subsequent reruns could not reproduce the failure, and the failing check was not identified. This occurrence is documented in test comments.
 
 ## Stop hook facts, measured not read
@@ -371,11 +398,14 @@ Transcript record handling: each content block of an assistant message is writte
 ```text
 stingray/
 ├── .claude-plugin/              # plugin.json and marketplace.json
+├── .grok-plugin/plugin.json     # Grok manifest; selects hooks/hooks.grok.json
 ├── .coderabbit.yaml             # review instructions, and the dated expiry of auto-review at <10 stars
 ├── .github/workflows/tests.yml  # offline suites + mutation checks, Linux and macOS
 ├── hooks/
 │   ├── hooks.json               # Stop hook registration, explicit timeout
 │   ├── stingray.sh              # the whole thing: shapes, redaction, fail-open paths, nudge
+│   ├── hooks.grok.json          # Grok hook registration
+│   ├── stingray-grok.sh         # Grok adapter: payload map, tool list, denylist
 │   ├── turn-tools.jq            # slice one turn out of the transcript
 │   └── handoffs.jq              # handoffs to another session still waiting for an answer
 ├── questions.json               # the five Jev questions — the classifier's contract, pinned to jev-1.13.0
@@ -386,6 +416,7 @@ stingray/
     ├── promise-fixture.sh       # live calibration of shape 2 on promise-fixture.tsv; needs a key
     ├── hook-shell.sh            # runs the hook on the interpreter hooks.json ships
     ├── mutants.sh               # re-derives that each guard still fails when broken
+    ├── grok-hook.sh             # Grok manifest and adapter against local stubs
     ├── show-payload.sh          # capture what would really be sent, locally
     ├── stub_server.py           # local stand-in for the endpoint; --list-modes lists its modes
     └── latency.py               # p50/p95 against a budget, exits non-zero over it
@@ -398,6 +429,7 @@ stingray/
 ./tests/network.sh           # fail-open paths against a local stub server
 ./tests/network.sh --live    # also the real endpoint, with synthetic text only
 ./tests/mutants.sh           # do the guards still guard?
+./tests/grok-hook.sh         # Grok adapter against local stubs; GROK_HOOK_MUTANT=<name> must fail
 ./tests/show-payload.sh 50   # capture what would really be sent, locally
 ./tests/watch-fixture.sh     # shape 3 against the real endpoint on labelled lines; needs a key
 ./tests/promise-fixture.sh   # shape 2 against the real endpoint on labelled turns; needs a key
