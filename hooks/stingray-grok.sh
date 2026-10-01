@@ -23,7 +23,7 @@ field() {
   v=$(printf '%s' "$input" | jq -r --arg k "$1" '.[$k] // empty | strings | . + "."' 2>/dev/null)
   printf -v "$2" '%s' "${v%.}"
 }
-# stingray builds a file path from session_id.
+# valid_id <id>: 1-128 of [A-Za-z0-9_-]; stingray builds a file path from session_id.
 valid_id() {
   case "$1" in
     ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;

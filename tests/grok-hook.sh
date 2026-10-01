@@ -21,17 +21,20 @@ done
 
 tmp=$(mktemp -d)
 stubs=()
+# Stop the stubs and remove the temp tree, including the chmod 000 fixture.
 cleanup() {
   for p in ${stubs[@]+"${stubs[@]}"}; do kill "$p" 2>/dev/null || true; done
   chmod -R u+rwx "$tmp" 2>/dev/null || true
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+# Fail the suite with a message.
 die() { echo "grok-hook: $*" >&2; exit 1; }
 
 # The tree under test: the repository, or a copy with one guard removed.
 R=$ROOT
-mutate() {  # mutate <file> <anchor> <replacement>; the anchor must be present
+# mutate <file> <anchor> <replacement>: replace the anchor once; it must be present.
+mutate() {
   ANCHOR="$2" REPLACEMENT="$3" python3 - "$R/$1" <<'PY' || exit 3
 import os, pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -85,7 +88,8 @@ export HOME="$tmp/home" GROK_HOME="$tmp/grok" TMPDIR="$tmp/tmp"
 export STINGRAY_STATE_DIR="$tmp/state"
 mkdir -p "$HOME" "$GROK_HOME" "$TMPDIR" "$tmp/fx"
 
-stub() {  # stub <mode> <name> [capture file]; the port goes to $tmp/<name>.port
+# stub <mode> <name> [capture file]: start a stub server; its port goes to $tmp/<name>.port.
+stub() {
   python3 "$ROOT/tests/stub_server.py" "$1" "$tmp/$2.port" ${3:+"$3"} &
   stubs+=($!)
   for _ in $(seq 1 50); do [ -s "$tmp/$2.port" ] && break; sleep 0.1; done
@@ -108,8 +112,11 @@ run() {
   printf '%s' "$p" | env "$@" STINGRAY_ENDPOINT="$ep" TYPESAFE_API_KEY=dummy \
     /bin/bash "$ADAPTER" >"$tmp/out" 2>"$tmp/err" || rc=$?
 }
+# Number of requests the recording stub has captured.
 sent() { wc -l <"$CAP" | tr -d ' '; }
+# The last captured request body.
 body() { tail -n 1 "$CAP"; }
+# The last run exited 0 and printed nothing on stdout.
 quiet() { [ "$rc" = 0 ] && [ ! -s "$tmp/out" ]; }
 
 WS="$HOME/work/quokkaproj"
@@ -124,7 +131,8 @@ printf '%s\n' "# one absolute path per line" "$DEN" "$HOME/work/slashy/" \
 PID=prompt-0001
 TP=""
 MSG="I updated the quokkaproj configuration and reran the checks; everything passes now."
-pl() {  # pl [jq filter]; a Grok stop payload
+# pl [jq filter]: a Grok stop payload.
+pl() {
   jq -nc --arg ws "$WS" --arg tp "$TP" --arg m "$MSG" --arg pid "$PID" '
     {hookEventName: "stop", reason: "end_turn", sessionId: "sess-0001", promptId: $pid,
      cwd: $ws, workspaceRoot: $ws, permissionMode: "default", stopHookActive: false,
@@ -132,18 +140,21 @@ pl() {  # pl [jq filter]; a Grok stop payload
     | '"${1:-.}"
 }
 
-# Grok updates.jsonl records: the turn-start hook record and a tool_call.
+# ups <promptId>: Grok's turn-start hook record in updates.jsonl.
 ups() {
   jq -nc --arg p "$1" '{method: "_x.ai/session/update", params: {sessionId: "sess-0001",
     update: {sessionUpdate: "hook_execution", event_name: "user_prompt_submit", prompt_id: $p}}}'
 }
-tc() {  # tc <promptId|-> <tool name>
+# tc <promptId|-> <tool name>: a tool_call record; "-" omits the promptId.
+tc() {
   jq -nc --arg p "$1" --arg n "$2" '{method: "session/update", params: {sessionId: "sess-0001",
     update: {sessionUpdate: "tool_call", toolCallId: "call-1", title: "title-CANARY",
       _meta: {"x.ai/tool": {name: $n}}},
     _meta: (if $p == "-" then {} else {promptId: $p} end)}}'
 }
+# Another turn's anchor and tool_call, before ours.
 other() { ups prompt-other; tc prompt-other other_before; }
+# This turn's tool_calls, the last without a promptId.
 turn() { tc "$PID" search_replace; tc "$PID" run_terminal_command; tc "$PID" use_tool; tc - web_search; }
 { other; ups "$PID"; turn; } >"$tmp/fx/full.jsonl"
 { other; ups "$PID"; } >"$tmp/fx/anchor-only.jsonl"
@@ -154,7 +165,8 @@ UNAV="tool list for this turn unavailable"
 SHADOW=(STINGRAY_SHADOW=1)
 
 # ── Tool list ────────────────────────────────────────────────────────────────
-tools_case() {  # tools_case <fixture> <expected tools> <label>
+# tools_case <fixture> <expected tools> <label>: one send, then check its tool list.
+tools_case() {
   local before; before=$(sent)
   TP="$tmp/fx/$1" run "$REC" "$(TP="$tmp/fx/$1" pl)" "${SHADOW[@]}"
   quiet && [ "$(sent)" = $((before + 1)) ] || die "$3: not sent (rc=$rc)"
@@ -173,13 +185,15 @@ body | grep -qF '<project>' || die "project name was not masked"
 ! body | grep -q CANARY || die "tool_call title was sent"
 
 # ── Not sent: other events, other stop reasons, bad ids ──────────────────────
-not_sent() {  # not_sent <label> <payload> [VAR=value ...]
+# not_sent <label> <payload> [VAR=value ...]: the adapter exits quietly and sends nothing.
+not_sent() {
   local label=$1 p=$2 before; shift 2
   before=$(sent)
   run "$REC" "$p" "$@" "${SHADOW[@]}"
   quiet && [ "$(sent)" = "$before" ] || die "$label: sent or not quiet (rc=$rc)"
 }
-is_sent() {  # is_sent <label> <payload> [VAR=value ...]
+# is_sent <label> <payload> [VAR=value ...]: the adapter sends exactly one request.
+is_sent() {
   local label=$1 p=$2 before; shift 2
   before=$(sent)
   run "$REC" "$p" "$@" "${SHADOW[@]}"
@@ -192,6 +206,7 @@ not_sent "sessionId with a path" "$(pl '.sessionId = "../x"')"
 is_sent "auto-wake promptId" "$(pl '.promptId = "task-completed-0001"')"
 
 # ── Denylist ─────────────────────────────────────────────────────────────────
+# at <workspaceRoot> [cwd]: a stop payload for that workspace.
 at() { pl ".workspaceRoot = \"$1\" | .cwd = \"${2:-$1}\""; }
 not_sent "denied exact" "$(at "$DEN")"
 not_sent "denied subtree" "$(at "$DEN/sub")"
@@ -249,7 +264,8 @@ echo '{"decision":"approve"}'
 echo "fake-stderr" >&2
 exit 7
 EOF
-cap() {  # cap <payload> [VAR=value ...]
+# cap <payload> [VAR=value ...]: run the adapter against the recording stand-in.
+cap() {
   local p=$1; shift
   rc=0
   printf '%s' "$p" | env "$@" /bin/bash "$tmp/cap/hooks/stingray-grok.sh" >"$tmp/out" 2>"$tmp/err" || rc=$?
