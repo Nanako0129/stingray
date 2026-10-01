@@ -149,6 +149,33 @@ transcript 的 `prompt_id`，所以 hook 送出的是「這一輪的工具清單
 從有工具清單時的 0.06–0.15 升到沒有時的 0.32–0.38，門檻 τ = 0.5。81.8% 不涵蓋
 Codex；在 Codex 請先從 `STINGRAY_SHADOW=1` 開始。
 
+### Grok plugin
+
+```bash
+grok plugin marketplace add Nanako0129/stingray
+grok plugin install stingray@stingray --trust
+```
+
+`.grok-plugin/plugin.json` 指定 `hooks/hooks.grok.json`，所以 Grok 不會載入
+Claude 的 `hooks/hooks.json`。安裝即會啟用；安裝後請開新的 Grok session，已在
+執行的 session 會沿用它載入時的 hook。Stop hook 把 Grok 的 payload 轉成
+`hooks/stingray.sh` 讀的欄位，並從 Grok 的 session 紀錄重建這一輪的工具清單。
+另外註冊一個什麼都不做的 UserPromptSubmit hook，只是為了讓 Grok 寫下切出那份
+清單所需的輪次起點紀錄。背景工作只以類型交給 stingray，指令列從不送出；
+`STINGRAY_QUESTIONS` 會被忽略。
+
+開關與 `TYPESAFE_API_KEY` 請設在啟動 Grok 的環境裡，hook 會繼承它。除非設了
+`STINGRAY_STATE_DIR`，狀態檔寫在 Grok 的 plugin 資料目錄。
+
+`STINGRAY_LANG` 仍從 Claude Code 的設定讀 `language`：依序是工作區的
+`.claude/settings.local.json`、`.claude/settings.json`，再來是
+`~/.claude/settings.json`（或 `$CLAUDE_CONFIG_DIR/settings.json`）。這些都沒有時，
+`STINGRAY_LANG=1` 在 Grok 底下不會有任何作用。
+
+要略過某個工作區，把它寫進 `$GROK_HOME/stingray-deny`（預設
+`~/.grok/stingray-deny`）：每行一個絕對路徑，涵蓋該路徑及其子目錄。檔案存在卻
+無法讀取時，所有工作區都會略過。
+
 ### 手動串接 hook
 
 亦可直接以 shell 腳本形式掛載：
@@ -345,6 +372,10 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 - 形狀 4 分不太出簡體與繁體：0.2.0 時一則簡體回覆對上 zh-TW 設定只得 0.29；0.3.2 量的兩則則以 0.64、0.90 被攔下。
 - 討論簡體在地化、又引用大陸用語（「軟件」「用戶」）的繁體回覆，仍會以 0.77–0.79 被攔：佔位詞只換掉語言名稱，換不掉被引用的詞。
 - harness 會把它自己的英文通知以助理訊息的形式寫進 transcript，例如「You've hit your session limit …」「API Error: Connection lost mid-response …」。hooks 文件寫明，因 API 錯誤而結束的一輪會觸發 `StopFailure` 而非 `Stop`，照這樣它們不會到這個 hook。這是文件依據，沒有實測。如果真的送到了，形狀 4 會判斷一次，重新進入的防護會擋掉第二次。
+- 在 Grok 裡，工具清單取自 Grok 的 session 紀錄，而不是每次工具呼叫的 hook：Grok 的工具 hook 沒有 prompt id，無法把呼叫對應到它所屬的那一輪。
+- 在 Grok 裡，所有 MCP 工具呼叫都列為 `use_tool`，這是 Grok 紀錄裡給它的名稱。
+- 在 Grok 裡，Stop 觸發時還沒寫進 session 紀錄的工具呼叫不會被算到，清單可能偏少。
+- 在 Grok 裡，語言檢查沒有 Grok 端的設定：`language` 取自 Claude Code 的設定檔，一個都沒有時，`STINGRAY_LANG=1` 什麼都不檢查。
 - `network.sh --live` 於某次測試曾出現 8/9 的結果；後續重複執行五次皆無法重現該錯誤，未能查明特定失敗項目。該紀錄已載於測試檔案註解。
 
 ## Stop hook 的實測契約
@@ -366,11 +397,14 @@ transcript 格式解析限制：助理訊息中每個 content block 皆以獨立
 ```text
 stingray/
 ├── .claude-plugin/              # plugin.json 與 marketplace.json
+├── .grok-plugin/plugin.json     # Grok manifest；指定 hooks/hooks.grok.json
 ├── .coderabbit.yaml             # 程式碼審查指示，以及 <10 星自動審查到期日的紀錄
 ├── .github/workflows/tests.yml  # 離線測試套件與突變檢查，支援 Linux 與 macOS
 ├── hooks/
 │   ├── hooks.json               # Stop hook 註冊設定，明定逾時時間
 │   ├── stingray.sh              # 完整邏輯：各種形狀、資料遮蔽、fail-open 路徑、提示字串
+│   ├── hooks.grok.json          # Grok hook 註冊設定
+│   ├── stingray-grok.sh         # Grok 轉接：payload 對應、工具清單、略過清單
 │   ├── turn-tools.jq            # 從 transcript 切出單一對話輪次
 │   └── handoffs.jq              # 交給其他 session、還在等回覆的交辦
 ├── questions.json               # 五道 Jev 判斷標準──分類器契約，釘死 jev-1.13.0
@@ -381,6 +415,7 @@ stingray/
     ├── promise-fixture.sh       # 用 promise-fixture.tsv 即時校準形狀 2；需要 key
     ├── hook-shell.sh            # 用 hooks.json 出貨的直譯器執行 hook
     ├── mutants.sh               # 驗證防護機制在程式碼遭破壞時能否如期攔截
+    ├── grok-hook.sh             # 對本機 stub 測 Grok manifest 與轉接腳本
     ├── show-payload.sh          # 於本機擷取實際送出的 payload 位元組
     ├── stub_server.py           # 端點本機替身；--list-modes 可列出支援模式
     └── latency.py               # 比對延遲預算計算 p50 與 p95，超標即以非零狀態退出
@@ -393,6 +428,7 @@ stingray/
 ./tests/network.sh           # 對本機 stub 測試 fail-open 路徑
 ./tests/network.sh --live    # 發送請求至真實端點，僅傳送合成文字
 ./tests/mutants.sh           # 測試防護機制是否能正確攔截損壞程式碼
+./tests/grok-hook.sh         # 對本機 stub 測 Grok 轉接；GROK_HOOK_MUTANT=<name> 必須失敗
 ./tests/show-payload.sh 50   # 於本機擷取實際送出的 payload 位元組
 ./tests/watch-fixture.sh     # 用標好答案的句子對真實端點測形狀 3；需要 key
 ./tests/promise-fixture.sh   # 用標好答案的回合對真實端點測形狀 2；需要 key

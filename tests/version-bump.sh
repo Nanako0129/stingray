@@ -10,9 +10,9 @@
 # change shipped under an unchanged version does not reach any existing
 # install, and the tool reports success while it happens.
 #
-# Scope is both installed plugins: the shared hook and questions, plus each
-# platform's manifest and hook registration. Both marketplaces use the same
-# version, so a Codex-only change needs a version bump too. README and workflow
+# Scope is every installed plugin: the shared hook and questions, plus each
+# platform's manifest and hook registration. All marketplaces use the same
+# version, so a Codex- or Grok-only change needs a version bump too. README and workflow
 # changes ship no runtime behavior and need no bump.
 set -uo pipefail
 
@@ -23,7 +23,8 @@ BASE="${1:-}"
 # indistinguishable from "nothing changed" unless the status is read. Silently
 # skipping the check is the failure direction this guard exists to prevent.
 if ! changed=$(git diff --name-only "$BASE"...HEAD -- \
-     .claude-plugin/plugin.json .codex-plugin/plugin.json hooks questions.json); then
+     .claude-plugin/plugin.json .codex-plugin/plugin.json .grok-plugin/plugin.json hooks \
+     questions.json); then
   echo "version-bump: cannot resolve base ref '$BASE'" >&2
   exit 2
 fi
@@ -35,6 +36,7 @@ fi
 
 head_v=$(jq -r '.version // empty' .claude-plugin/plugin.json 2>/dev/null)
 codex_v=$(jq -r '.version // empty' .codex-plugin/plugin.json 2>/dev/null)
+grok_v=$(jq -r '.version // empty' .grok-plugin/plugin.json 2>/dev/null)
 base_v=$(git show "$BASE:.claude-plugin/plugin.json" 2>/dev/null | jq -r '.version // empty')
 
 if [ -z "$head_v" ]; then
@@ -44,6 +46,11 @@ fi
 
 if [ "$codex_v" != "$head_v" ]; then
   echo "version-bump: Codex version '$codex_v' must match Claude version '$head_v'" >&2
+  exit 1
+fi
+
+if [ "$grok_v" != "$head_v" ]; then
+  echo "version-bump: Grok version '$grok_v' must match Claude version '$head_v'" >&2
   exit 1
 fi
 

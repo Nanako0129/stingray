@@ -37,10 +37,14 @@ jobs:
         run: |
           bash -n hooks/stingray.sh
           bash -n hooks/stingray-codex.sh
+          bash -n hooks/stingray-grok.sh
           bash -n tests/acceptance.sh
           bash -n tests/codex-hook.sh
+          bash -n tests/grok-hook.sh
           bash -n tests/network.sh
           bash -n tests/show-payload.sh
+          # hooks.grok.json runs the adapter on /bin/bash, which is 3.2 on macOS.
+          /bin/bash -n hooks/stingray-grok.sh
 
       - name: questions.json is valid and pins a model contract
         run: |
@@ -51,6 +55,11 @@ jobs:
         run: |
           jq -e . .codex-plugin/plugin.json >/dev/null
           jq -e . hooks/hooks.codex.json >/dev/null
+
+      - name: Grok plugin definition is valid
+        run: |
+          jq -e . .grok-plugin/plugin.json >/dev/null
+          jq -e . hooks/hooks.grok.json >/dev/null
 
       # No API key, no network. This is the whole gate: if the acceptance suite
       # needed a secret it could not run on a fork's pull request, which is
@@ -70,6 +79,9 @@ jobs:
 
       - name: Codex marketplace hook
         run: bash tests/codex-hook.sh
+
+      - name: Grok plugin hook
+        run: bash tests/grok-hook.sh
   # `claude plugin update` keys on the version string alone. A hook change under
   # an unchanged version reaches no existing install while the tool reports
   # success, so the version is enforced rather than remembered.
@@ -95,11 +107,11 @@ jobs:
           BASE: ${{ github.base_ref }}
         run: |
           base_v=$(git show "origin/$BASE:.claude-plugin/plugin.json" | jq -r .version)
-          # Both manifests go back to the base version: leaving Codex ahead
-          # would trip the equality check first, and the guard would fail for a
-          # reason other than the one this step exists to prove. Set directly,
-          # since the Codex manifest may not exist in the base revision.
-          for m in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+          # Every manifest goes back to the base version: leaving Codex or Grok
+          # ahead would trip an equality check first, and the guard would fail
+          # for a reason other than the one this step exists to prove. Set
+          # directly, since those manifests may not exist in the base revision.
+          for m in .claude-plugin/plugin.json .codex-plugin/plugin.json .grok-plugin/plugin.json; do
             jq --arg v "$base_v" '.version=$v' "$m" > p.json
             mv p.json "$m"
           done
