@@ -152,9 +152,12 @@ Codex；在 Codex 請先從 `STINGRAY_SHADOW=1` 開始。
 ### Grok plugin
 
 ```bash
-grok plugin marketplace add Nanako0129/stingray
-grok plugin install stingray@stingray --trust
+grok plugin install Nanako0129/stingray --trust
 ```
+
+Grok 會把這個 repo 當成單一 plugin，而不是 marketplace，所以請直接安裝。如果
+Claude Code 已經裝了 stingray，Grok 會透過 Claude Code 相容機制使用那一份，不需
+要另外安裝。
 
 `.grok-plugin/plugin.json` 指定 `hooks/hooks.grok.json`，所以 Grok 不會載入
 Claude 的 `hooks/hooks.json`。安裝即會啟用；安裝後請開新的 Grok session，已在
@@ -167,8 +170,9 @@ Claude 的 `hooks/hooks.json`。安裝即會啟用；安裝後請開新的 Grok 
 開關與 `TYPESAFE_API_KEY` 請設在啟動 Grok 的環境裡，hook 會繼承它。除非設了
 `STINGRAY_STATE_DIR`，狀態檔寫在 Grok 的 plugin 資料目錄。
 
-`STINGRAY_LANG` 仍從 Claude Code 的設定讀 `language`：依序是工作區的
-`.claude/settings.local.json`、`.claude/settings.json`，再來是
+`STINGRAY_LANG` 仍從 Claude Code 的設定讀 `language`：依序是 Grok 工作目錄
+（`cwd`，不一定是工作區根目錄）的 `.claude/settings.local.json`、
+`.claude/settings.json`，再來是
 `~/.claude/settings.json`（或 `$CLAUDE_CONFIG_DIR/settings.json`）。這些都沒有時，
 `STINGRAY_LANG=1` 在 Grok 底下不會有任何作用。
 
