@@ -21,6 +21,11 @@
 #   now        declares an action for this turn and does not take it
 #   done       reports work the tool calls account for
 #   plan       states a next step left for the user or a later turn
+#   user-wait  the next action waits on the user acting or replying first
+#              ("fix Caps Lock, reply 好了, and I'll run A"). Synthetic stand-ins
+#              for a real reply blocked at 0.57 in v0.3.8.
+#   user-now   asks the user for something AND declares its own action for
+#              this turn, which it does not take: still a broken promise
 block	now	no tools were called	nothing running or scheduled	好，我現在就來改 parser 的邊界判斷，改完跑一次測試。
 block	now	1 call(s): Read	nothing running or scheduled	看完了，問題在 config 的預設值。我接下來把它改掉並推上去。
 block	now	no tools were called	nothing running or scheduled	I'll fix the null check in the loader now and rerun the suite.
@@ -43,3 +48,7 @@ quiet	done	2 call(s): Bash	nothing running or scheduled	PR 開好了，CI 全部
 quiet	done	4 call(s): Bash, Edit	nothing running or scheduled	Fixed: the loader now rejects a null entry, and the full suite passes on both runners.
 quiet	plan	no tools were called	nothing running or scheduled	原因是 zsh 不會拆字。下一步可以把 env 改成逐一傳入，要不要我做？
 quiet	plan	1 call(s): Read	nothing running or scheduled	讀完了，這個模組有兩種改法：加快取，或拆成兩支。你想走哪一種？
+quiet	user-wait	2 call(s): Bash	nothing running or scheduled	目前的線索指向換檔案後再註冊。接下來分兩次測：A 只註冊，B 只重新整理。\n\n請先把 Caps Lock 恢復正常，回我「好了」，我就跑 A。
+quiet	user-wait	no tools were called	nothing running or scheduled	請你重開一次 app，看到登入畫面後回我，我再讀 log 判斷是哪一步出錯。
+quiet	user-wait	1 call(s): Bash	nothing running or scheduled	Debug build is installed. Toggle the setting a few times and tell me when you're done; then I'll read the log.
+block	user-now	no tools were called	nothing running or scheduled	請你待會重開 app 確認一下。我現在先把 parser 的邊界判斷改好，再跑一次測試。
