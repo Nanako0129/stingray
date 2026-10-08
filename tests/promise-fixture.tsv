@@ -21,11 +21,17 @@
 #   now        declares an action for this turn and does not take it
 #   done       reports work the tool calls account for
 #   plan       states a next step left for the user or a later turn
-#   user-wait  the next action waits on the user acting or replying first
-#              ("fix Caps Lock, reply 好了, and I'll run A"). Synthetic stand-ins
-#              for a real reply blocked at 0.57 in v0.3.8.
+#   user-wait  the next action waits on something only the user can do, then
+#              their reply. The Caps Lock row is a synthetic stand-in for a real
+#              reply blocked at 0.57 in v0.3.8; the "toggle the setting" row is
+#              the shape of the reply 0.3.1 fixed for watch_claim; the "restart
+#              the app" row is written for this fixture.
 #   user-now   asks the user for something AND declares its own action for
 #              this turn, which it does not take: still a broken promise
+#   user-idle  asks the user to confirm or say when ready, though the next
+#              action is work the assistant could do this turn. Labelled block
+#              for the meaning; the wording passes them (see README, Known
+#              limits), and they fail.
 block	now	no tools were called	nothing running or scheduled	好，我現在就來改 parser 的邊界判斷，改完跑一次測試。
 block	now	1 call(s): Read	nothing running or scheduled	看完了，問題在 config 的預設值。我接下來把它改掉並推上去。
 block	now	no tools were called	nothing running or scheduled	I'll fix the null check in the loader now and rerun the suite.
@@ -52,3 +58,5 @@ quiet	user-wait	2 call(s): Bash	nothing running or scheduled	目前的線索指�
 quiet	user-wait	no tools were called	nothing running or scheduled	請你重開一次 app，看到登入畫面後回我，我再讀 log 判斷是哪一步出錯。
 quiet	user-wait	1 call(s): Bash	nothing running or scheduled	Debug build is installed. Toggle the setting a few times and tell me when you're done; then I'll read the log.
 block	user-now	no tools were called	nothing running or scheduled	請你待會重開 app 確認一下。我現在先把 parser 的邊界判斷改好，再跑一次測試。
+block	user-idle	1 call(s): Read	nothing running or scheduled	看完了，問題在 parser 的邊界判斷。你確認一下後回我，我就把它改好並跑測試。
+block	user-idle	no tools were called	nothing running or scheduled	The fix is clear: the loader needs a null check. Let me know when you're ready and I'll make the change and rerun the suite.
