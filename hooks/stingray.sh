@@ -215,29 +215,28 @@ j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 # Second guard, independent of the first. Should stop_hook_active ever be reset
 # — by compaction, a subagent boundary, or some path nobody has observed — one
 # run of blocks still ends after MAX_BLOCKS. A single boolean is a single
-# point of failure, and its failure direction is an infinite loop.
-# The count is of consecutive blocks, not of blocks in a session: from here on
-# it is removed before any exit, and only block() writes it back. Every other
-# exit lets the turn end, which ends the run. A session-wide count that never
-# reset left the hook doing nothing for the rest of a long session once spent —
-# measured 2026-10-08 on a session that had reached 20 on 09-26 and logged
-# nothing after.
+# point of failure, and its failure direction is an infinite loop. While the
+# harness flag works, a run never gets past one block.
+# The count is of consecutive blocks, not of blocks in a session: it is read
+# and removed below, before every later exit, and only block() writes it back.
+# Every other exit lets the turn end, which ends the run. A session-wide count
+# that never reset left the hook doing nothing for the rest of a long session
+# once spent — measured 2026-10-08 on a session that had reached 20 on 09-26
+# and logged nothing after.
 session=$(j '.session_id')
 [ -n "$session" ] && [ "$session" != "null" ] || exit 0
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 count_file="$STATE_DIR/blocks-$session"
-
-# First guard: built into the harness. True when re-entering after a block.
-# That re-entry is how a blocked turn normally ends, so it ends the run too;
-# without the reset, separate turns blocked once each would add up.
-if [ "$(j '.stop_hook_active')" = "true" ]; then
-  rm -f "$count_file" 2>/dev/null
-  exit 0
-fi
-
 blocks=$(cat "$count_file" 2>/dev/null || echo 0)
 case "$blocks" in ''|*[!0-9]*) blocks=0 ;; esac
 rm -f "$count_file" 2>/dev/null
+
+# First guard: built into the harness. True when re-entering after a block —
+# by any Stop hook, not only this one. That re-entry is how a blocked turn
+# normally ends, so the reset above ends the run too; without it, separate
+# turns blocked once each would add up.
+[ "$(j '.stop_hook_active')" = "true" ] && exit 0
+
 if [ "$blocks" -ge "$MAX_BLOCKS" ]; then
   echo "(stingray: block budget $MAX_BLOCKS reached; letting this turn end)" >&2
   exit 0
