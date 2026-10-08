@@ -215,8 +215,8 @@ j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 # Second guard, independent of the first. Should stop_hook_active ever be reset
 # — by compaction, a subagent boundary, or some path nobody has observed — one
 # run of blocks still ends after MAX_BLOCKS. A single boolean is a single
-# point of failure, and its failure direction is an infinite loop. While the
-# harness flag works, a run never gets past one block.
+# point of failure, and its failure direction is an infinite loop. Under Claude
+# Code, where the flag is measured, a run never gets past one block.
 # The count is of consecutive blocks, not of blocks in a session: it is read
 # and removed below, before every later exit, and only block() writes it back.
 # Every other exit lets this hook's run end; another Stop hook may still keep
