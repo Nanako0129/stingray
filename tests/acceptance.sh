@@ -283,6 +283,23 @@ else
   fail=$((fail+1)); printf '  FAIL  11.7 a passing turn resets the run → %s, want 220222\n' "$seq7"
 fi
 
+# 11.8 The way Claude Code really ends a blocked turn: the re-entry carries
+#      stop_hook_active=true. Four turns, each blocked once and then re-entered,
+#      must all block; the re-entry ends the run like any other exit.
+REENTRY_STATE="$TMP/budget-reentry"; rm -rf "$REENTRY_STATE"
+seq8=""
+for active in false true false true false true false; do
+  ( export STINGRAY_STATE_DIR="$REENTRY_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+    printf '%s' "$(mk "$WATCH_PLAIN" '[]' | jq -c --argjson a "$active" '.stop_hook_active=$a')" \
+      | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+  seq8="$seq8$?"
+done
+if [ "$seq8" = "2020202" ]; then
+  pass=$((pass+1)); printf '  ok    11.8 re-entry ends the run → %s\n' "$seq8"
+else
+  fail=$((fail+1)); printf '  FAIL  11.8 re-entry ends the run → %s, want 2020202\n' "$seq8"
+fi
+
 # 12. Shadow leaves a record; that log is the only thing calibration can use.
 if [ -s "$TMP/state/decisions.jsonl" ] && \
    jq -e 'select(.mode=="shadow" and .shape=="unwatched" and .would_block=="false")' \

@@ -212,22 +212,29 @@ input=$(cat)
 j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 
 # ── Loop protection ───────────────────────────────────────────────────────────
-# First guard: built into the harness. True when re-entering after a block.
-[ "$(j '.stop_hook_active')" = "true" ] && exit 0
-
 # Second guard, independent of the first. Should stop_hook_active ever be reset
 # — by compaction, a subagent boundary, or some path nobody has observed — one
 # run of blocks still ends after MAX_BLOCKS. A single boolean is a single
 # point of failure, and its failure direction is an infinite loop.
-# The count is of consecutive blocks, not of blocks in a session: it is read
-# and removed here, and only block() writes it back. Every other exit lets the
-# turn end, which ends the run. A session-wide count that never reset left the
-# hook doing nothing for the rest of a long session once spent — measured
-# 2026-10-08 on a session that had reached 20 on 09-26 and logged nothing after.
+# The count is of consecutive blocks, not of blocks in a session: from here on
+# it is removed before any exit, and only block() writes it back. Every other
+# exit lets the turn end, which ends the run. A session-wide count that never
+# reset left the hook doing nothing for the rest of a long session once spent —
+# measured 2026-10-08 on a session that had reached 20 on 09-26 and logged
+# nothing after.
 session=$(j '.session_id')
 [ -n "$session" ] && [ "$session" != "null" ] || exit 0
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 count_file="$STATE_DIR/blocks-$session"
+
+# First guard: built into the harness. True when re-entering after a block.
+# That re-entry is how a blocked turn normally ends, so it ends the run too;
+# without the reset, separate turns blocked once each would add up.
+if [ "$(j '.stop_hook_active')" = "true" ]; then
+  rm -f "$count_file" 2>/dev/null
+  exit 0
+fi
+
 blocks=$(cat "$count_file" 2>/dev/null || echo 0)
 case "$blocks" in ''|*[!0-9]*) blocks=0 ;; esac
 rm -f "$count_file" 2>/dev/null
