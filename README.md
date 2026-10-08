@@ -367,7 +367,7 @@ With `STINGRAY_SHAPE3=1` the hook also reads the transcript for handoffs, locall
 Two distinct guards prevent execution loops, avoiding single points of failure:
 
 1. `stop_hook_active` from the harness evaluates to `true` on re-entry, preventing consecutive interventions on the same stop event.
-2. A limit on consecutive interceptions (`STINGRAY_MAX_BLOCKS`, default 3) enforced independently of the harness flag. While the flag works, a run never gets past one block, so this limit only matters if it fails. Any turn the hook lets end — passed, failed open, let through by this limit, or re-entered after a block — starts the count again. Before 0.3.8 the count covered the whole session and never reset, so a long session that spent it got no checks at all from then on.
+2. A limit on consecutive interceptions (`STINGRAY_MAX_BLOCKS`, default 3) enforced independently of the harness flag. Under Claude Code, where the flag is measured, a run never gets past one block, so this limit only matters if the flag fails. Once the hook has read the count, every outcome other than a block — a pass, a fail-open, this limit, or a re-entry — starts it again; with the hook off, `jq` missing or no `session_id`, it never reads the count and leaves it as it was. Before 0.3.8 the count covered the whole session and never reset, so a long session that spent it got no checks at all from then on.
 
 ## Known limits
 

@@ -219,7 +219,8 @@ j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 # harness flag works, a run never gets past one block.
 # The count is of consecutive blocks, not of blocks in a session: it is read
 # and removed below, before every later exit, and only block() writes it back.
-# Every other exit lets the turn end, which ends the run. A session-wide count
+# Every other exit lets this hook's run end; another Stop hook may still keep
+# the turn going, but stingray then starts counting again from 0. A session-wide count
 # that never reset left the hook doing nothing for the rest of a long session
 # once spent — measured 2026-10-08 on a session that had reached 20 on 09-26
 # and logged nothing after.

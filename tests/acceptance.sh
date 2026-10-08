@@ -300,6 +300,22 @@ else
   fail=$((fail+1)); printf '  FAIL  11.8 re-entry ends the run → %s, want 2020202\n' "$seq8"
 fi
 
+# 11.9 A fail-open stop also ends the run: block, block, then the endpoint is
+#      unreachable (exit 0), then three more blocks in a row.
+FO_STATE="$TMP/budget-failopen"; rm -rf "$FO_STATE"
+seq9=""
+for env in claims claims down claims claims claims; do
+  ( export STINGRAY_STATE_DIR="$FO_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+    [ "$env" = down ] && export STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable
+    printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+  seq9="$seq9$?"
+done
+if [ "$seq9" = "220222" ]; then
+  pass=$((pass+1)); printf '  ok    11.9 a fail-open stop resets the run → %s\n' "$seq9"
+else
+  fail=$((fail+1)); printf '  FAIL  11.9 a fail-open stop resets the run → %s, want 220222\n' "$seq9"
+fi
+
 # 12. Shadow leaves a record; that log is the only thing calibration can use.
 if [ -s "$TMP/state/decisions.jsonl" ] && \
    jq -e 'select(.mode=="shadow" and .shape=="unwatched" and .would_block=="false")' \
