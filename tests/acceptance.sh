@@ -255,6 +255,34 @@ else
   fail=$((fail+1)); printf '  FAIL  11.5 budget message missing: %s\n' "$(head -c 120 "$TMP/b.4")"
 fi
 
+# 11.6 The budget bounds a run of blocks, not a session. The fourth call let
+#      the turn end, so the next one starts a fresh run and blocks again. A
+#      count that never reset left the hook silent for the rest of a session.
+( export STINGRAY_STATE_DIR="$BUDGET_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+  printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+rc=$?
+if [ "$rc" = 2 ]; then
+  pass=$((pass+1)); printf '  ok    11.6 after the budget let a turn end → blocks again\n'
+else
+  fail=$((fail+1)); printf '  FAIL  11.6 after the budget let a turn end → exit %s, want 2\n' "$rc"
+fi
+
+# 11.7 A turn that passes also ends the run: block, block, pass, then three
+#      more blocks in a row, all of which must still block.
+RUN_STATE="$TMP/budget-run"; rm -rf "$RUN_STATE"
+RUNNING='[{"id":"b1","type":"shell","status":"running","description":"poll CodeRabbit","command":"poll"}]'
+seq7=""
+for bg in '[]' '[]' "$RUNNING" '[]' '[]' '[]'; do
+  ( export STINGRAY_STATE_DIR="$RUN_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+    printf '%s' "$(mk "$WATCH_PLAIN" "$bg")" | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+  seq7="$seq7$?"
+done
+if [ "$seq7" = "220222" ]; then
+  pass=$((pass+1)); printf '  ok    11.7 a passing turn resets the run → %s\n' "$seq7"
+else
+  fail=$((fail+1)); printf '  FAIL  11.7 a passing turn resets the run → %s, want 220222\n' "$seq7"
+fi
+
 # 12. Shadow leaves a record; that log is the only thing calibration can use.
 if [ -s "$TMP/state/decisions.jsonl" ] && \
    jq -e 'select(.mode=="shadow" and .shape=="unwatched" and .would_block=="false")' \

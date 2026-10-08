@@ -255,7 +255,7 @@ Precedence and execution rules:
 
 The smallest configuration is `STINGRAY_SHAPE3=1` alone: one question per turn, about whether the reply promised a watch. When something is running in the background, a second one (`watch_mismatch`) rides in the same request, carrying the tool list and background statuses as well, and is logged even while `STINGRAY_SHAPE3_JUDGE` is off.
 
-Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 per session), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
+Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 in a row), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
 
 ## What leaves your machine
 
@@ -367,7 +367,7 @@ With `STINGRAY_SHAPE3=1` the hook also reads the transcript for handoffs, locall
 Two distinct guards prevent execution loops, avoiding single points of failure:
 
 1. `stop_hook_active` from the harness evaluates to `true` on re-entry, preventing consecutive interventions on the same stop event.
-2. A per-session interception limit (`STINGRAY_MAX_BLOCKS`, default 3) enforced independently of the harness flag.
+2. A limit on consecutive interceptions (`STINGRAY_MAX_BLOCKS`, default 3) enforced independently of the harness flag. Any turn the hook lets end — passed, failed open, or let through by this limit — starts the count again. Before 0.3.8 the count covered the whole session and never reset, so a long session that spent it got no checks at all from then on.
 
 ## Known limits
 
