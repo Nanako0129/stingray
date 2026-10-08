@@ -248,7 +248,7 @@ command -v jq || sudo apt install jq  # Debian/Ubuntu
 
 最小的設定是單獨開 `STINGRAY_SHAPE3=1`：每一輪一個題目，問回覆有沒有承諾要盯著什麼。背景有東西在跑時，同一次請求會再帶第二題（`watch_mismatch`），而且連同工具清單與背景狀態一起送出；即使 `STINGRAY_SHAPE3_JUDGE` 沒開，也會問、也會記錄。
 
-其餘參數設定：`STINGRAY_TAU`（0.5）、`STINGRAY_TIMEOUT`（6 秒）、`STINGRAY_MAX_BLOCKS`（每 session 上限 3 次）、`STINGRAY_STATE_DIR`（`~/.local/state/stingray`）、`STINGRAY_REDACT_WORDS`（額外指定遮蔽字串），以及 `STINGRAY_JEV_MODEL`（`jev-1.13.0`，釘死版本以避免分類器無預警變更）。
+其餘參數設定：`STINGRAY_TAU`（0.5）、`STINGRAY_TIMEOUT`（6 秒）、`STINGRAY_MAX_BLOCKS`（連續上限 3 次）、`STINGRAY_STATE_DIR`（`~/.local/state/stingray`）、`STINGRAY_REDACT_WORDS`（額外指定遮蔽字串），以及 `STINGRAY_JEV_MODEL`（`jev-1.13.0`，釘死版本以避免分類器無預警變更）。
 
 ## 什麼東西會離開你的電腦
 
@@ -360,7 +360,7 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 具備兩道獨立防禦機制，避免單一布林值失效而導致對話無窮迴圈：
 
 1. harness 提供的 `stop_hook_active` 旗標──重新進入 hook 時為 `true`，防止對同一收尾事件重複介入。
-2. 每個 session 獨立計算的攔阻收尾次數上限（`STINGRAY_MAX_BLOCKS`，預設 3 次），不依賴 harness 旗標狀態。
+2. 連續攔阻收尾的次數上限（`STINGRAY_MAX_BLOCKS`，預設 3 次），不依賴 harness 旗標狀態。在實測過這個旗標的 Claude Code 上，連續攔阻不會超過一次，所以這個上限只在旗標失效時才有作用。hook 讀到計數之後，只要結果不是攔阻──判定通過、fail open、因這個上限放行，或被攔之後重新進入──就重新計數；hook 關閉、沒有 `jq`、沒有 `session_id` 或無法建立狀態目錄時不會讀計數，原值保留。0.3.8 以前是整個 session 共用一個計數且永不歸零，長 session 一旦用完，之後就完全不再檢查。
 
 ## 已知限制
 

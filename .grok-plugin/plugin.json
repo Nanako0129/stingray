@@ -1,6 +1,6 @@
 {
   "name": "stingray",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Stop hook that catches a turn stopping half-done and pushes Grok back to finish it.",
   "author": {
     "name": "Nanako0129",

@@ -255,6 +255,67 @@ else
   fail=$((fail+1)); printf '  FAIL  11.5 budget message missing: %s\n' "$(head -c 120 "$TMP/b.4")"
 fi
 
+# 11.6 The budget bounds a run of blocks, not a session. The fourth call let
+#      the turn end, so the next one starts a fresh run and blocks again. A
+#      count that never reset left the hook silent for the rest of a session.
+( export STINGRAY_STATE_DIR="$BUDGET_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+  printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+rc=$?
+if [ "$rc" = 2 ]; then
+  pass=$((pass+1)); printf '  ok    11.6 after the budget let a turn end → blocks again\n'
+else
+  fail=$((fail+1)); printf '  FAIL  11.6 after the budget let a turn end → exit %s, want 2\n' "$rc"
+fi
+
+# 11.7 A turn that passes also ends the run: block, block, pass, then three
+#      more blocks in a row, all of which must still block.
+RUN_STATE="$TMP/budget-run"; rm -rf "$RUN_STATE"
+RUNNING='[{"id":"b1","type":"shell","status":"running","description":"poll CodeRabbit","command":"poll"}]'
+seq7=""
+for bg in '[]' '[]' "$RUNNING" '[]' '[]' '[]'; do
+  ( export STINGRAY_STATE_DIR="$RUN_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+    printf '%s' "$(mk "$WATCH_PLAIN" "$bg")" | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+  seq7="$seq7$?"
+done
+if [ "$seq7" = "220222" ]; then
+  pass=$((pass+1)); printf '  ok    11.7 a passing turn resets the run → %s\n' "$seq7"
+else
+  fail=$((fail+1)); printf '  FAIL  11.7 a passing turn resets the run → %s, want 220222\n' "$seq7"
+fi
+
+# 11.8 The way Claude Code really ends a blocked turn: the re-entry carries
+#      stop_hook_active=true. Four turns, each blocked once and then re-entered,
+#      must all block; the re-entry ends the run like any other exit.
+REENTRY_STATE="$TMP/budget-reentry"; rm -rf "$REENTRY_STATE"
+seq8=""
+for active in false true false true false true false; do
+  ( export STINGRAY_STATE_DIR="$REENTRY_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+    printf '%s' "$(mk "$WATCH_PLAIN" '[]' | jq -c --argjson a "$active" '.stop_hook_active=$a')" \
+      | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+  seq8="$seq8$?"
+done
+if [ "$seq8" = "2020202" ]; then
+  pass=$((pass+1)); printf '  ok    11.8 re-entry ends the run → %s\n' "$seq8"
+else
+  fail=$((fail+1)); printf '  FAIL  11.8 re-entry ends the run → %s, want 2020202\n' "$seq8"
+fi
+
+# 11.9 A fail-open stop also ends the run: block, block, then the endpoint is
+#      unreachable (exit 0), then three more blocks in a row.
+FO_STATE="$TMP/budget-failopen"; rm -rf "$FO_STATE"
+seq9=""
+for env in claims claims down claims claims claims; do
+  ( export STINGRAY_STATE_DIR="$FO_STATE" STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+    [ "$env" = down ] && export STINGRAY_ENDPOINT=http://127.0.0.1:1/unreachable
+    printf '%s' "$(mk "$WATCH_PLAIN" '[]')" | "$HOOK_SH" "$HOOK" >/dev/null 2>&1 )
+  seq9="$seq9$?"
+done
+if [ "$seq9" = "220222" ]; then
+  pass=$((pass+1)); printf '  ok    11.9 a fail-open stop resets the run → %s\n' "$seq9"
+else
+  fail=$((fail+1)); printf '  FAIL  11.9 a fail-open stop resets the run → %s, want 220222\n' "$seq9"
+fi
+
 # 12. Shadow leaves a record; that log is the only thing calibration can use.
 if [ -s "$TMP/state/decisions.jsonl" ] && \
    jq -e 'select(.mode=="shadow" and .shape=="unwatched" and .would_block=="false")' \

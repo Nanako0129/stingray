@@ -212,21 +212,34 @@ input=$(cat)
 j() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
 
 # ── Loop protection ───────────────────────────────────────────────────────────
-# First guard: built into the harness. True when re-entering after a block.
-[ "$(j '.stop_hook_active')" = "true" ] && exit 0
-
 # Second guard, independent of the first. Should stop_hook_active ever be reset
 # — by compaction, a subagent boundary, or some path nobody has observed — one
-# session still blocks at most MAX_BLOCKS times. A single boolean is a single
-# point of failure, and its failure direction is an infinite loop.
+# run of blocks still ends after MAX_BLOCKS. A single boolean is a single
+# point of failure, and its failure direction is an infinite loop. Under Claude
+# Code, where the flag is measured, a run never gets past one block.
+# The count is of consecutive blocks, not of blocks in a session: it is read
+# and removed below, before every later exit, and only block() writes it back.
+# Every other exit lets this hook's run end; another Stop hook may still keep
+# the turn going, but stingray then starts counting again from 0. A session-wide count
+# that never reset left the hook doing nothing for the rest of a long session
+# once spent — measured 2026-10-08 on a session that had reached 20 on 09-26
+# and logged nothing after.
 session=$(j '.session_id')
 [ -n "$session" ] && [ "$session" != "null" ] || exit 0
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 count_file="$STATE_DIR/blocks-$session"
 blocks=$(cat "$count_file" 2>/dev/null || echo 0)
 case "$blocks" in ''|*[!0-9]*) blocks=0 ;; esac
+rm -f "$count_file" 2>/dev/null
+
+# First guard: built into the harness. True when re-entering after a block —
+# by any Stop hook, not only this one. That re-entry is how a blocked turn
+# normally ends, so the reset above ends the run too; without it, separate
+# turns blocked once each would add up.
+[ "$(j '.stop_hook_active')" = "true" ] && exit 0
+
 if [ "$blocks" -ge "$MAX_BLOCKS" ]; then
-  echo "(stingray: block budget $MAX_BLOCKS reached for this session)" >&2
+  echo "(stingray: block budget $MAX_BLOCKS reached; letting this turn end)" >&2
   exit 0
 fi
 
@@ -250,12 +263,7 @@ log() {   # log <shape> <score> <would_block>
 # hooks.json runs on macOS — and on 5.3. Without this, an unwritable decisions.jsonl beside a
 # writable block counter still reached block(): the hook blocked while the one
 # log that calibration depends on silently lost the decision.
-# prompt_id is recorded so that the block budget can later be keyed on it. The
-# budget counts every block in a session and never resets, so after MAX_BLOCKS
-# successful nudges the hook stops working for the rest of that session. What
-# it should bound is a run of blocks at one stop point. Whether a re-entry after
-# a block carries the same prompt_id as the turn it re-enters is the fact that
-# decides how, and it is not yet measured; these records are how it will be.
+# prompt_id is recorded so that blocks can be tied to the turn they stopped.
 
 # The only exit that blocks. The reason goes to stderr because stdout does not
 # reach the model (measured, see header).
