@@ -230,6 +230,107 @@ b7_bg=$(jq -r '[.questions[].instructions.background] | unique | join("|")' "$TM
   && say ok "B7 absent background_tasks → sent as unavailable, not as empty" \
   || say no "B7 absent background_tasks → background sent as: ${b7_bg:-<no request captured>}"
 
+# ── T. The tool list comes from the tail of the transcript only. Slurping the
+#       whole file ran past the hook timeout on a 1.68 GB transcript, so the hook
+#       was killed and judged nothing. Each case reads the body the hook sent.
+#       Filler records come first; the turn (its user record with this
+#       prompt_id, then two tool calls) is last. The tail is set small enough to
+#       cut the filler in the middle of a line.
+T_PID="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+t_transcript() {  # t_transcript <file> <filler records>
+  : >| "$1"
+  for i in $(seq 1 "$2"); do
+    jq -cn --arg pad "$(printf 'x%.0s' $(seq 1 400))" --arg n "$i" \
+      '{type:"assistant",message:{content:[{type:"text",text:($n+$pad)}]}}' >> "$1"
+  done
+  # the previous turn ends just before this one, as in a real transcript; a cut
+  # tail must show some other prompt's record before this turn's start (T6)
+  jq -cn '{type:"user",promptId:"00000000-prev-turn-0000-000000000000",message:{content:"earlier"}}' >> "$1"
+  jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}' >> "$1"
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}' >> "$1"
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}' >> "$1"
+}
+t_run() {  # t_run <label> <transcript> <tail bytes or ""> ; prints the tools field sent
+  rm -f "$TMP/captured-record"; start_stub record
+  ( export STINGRAY_STATE_DIR="$TMP/st-$1" STINGRAY_SHADOW=1 TYPESAFE_API_KEY=dummy \
+           STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+    [ -n "$3" ] && export STINGRAY_TRANSCRIPT_TAIL_BYTES="$3"
+    mk "$SYNTHETIC" | jq -c --arg t "$2" '.transcript_path = $t' | "$HOOK_SH" "$HOOK" >/dev/null 2>"$TMP/$1.err" )
+  kill "$STUB_PID" 2>/dev/null; STUB_PID=
+  jq -r '[.questions[].instructions.tools // empty] | unique | join("|")' "$TMP/captured-record" 2>/dev/null | head -1
+}
+t_transcript "$TMP/t-big.jsonl" 60          # about 26 KB of filler before the turn
+TWO="2 call(s): Bash, Read"
+t1=$(t_run t1 "$TMP/t-big.jsonl" 4000)      # tail cuts a filler line; the turn is inside it
+[ "$t1" = "$TWO" ] \
+  && say ok "T1 tail cuts mid-line, turn inside it → tools read from the tail ($t1)" \
+  || say no "T1 tail cuts mid-line → tools sent as: ${t1:-<no request captured>}"
+t2=$(t_run t2 "$TMP/t-big.jsonl" 100)       # tail ends inside the turn: its user record is cut off
+[ "$t2" = "tool list for this turn unavailable" ] \
+  && say ok "T2 turn starts before the tail → sent as unavailable, not as no tools" \
+  || say no "T2 turn starts before the tail → tools sent as: ${t2:-<no request captured>}"
+t3=$(t_run t3 "$TMP/t-big.jsonl" "")        # shipped default (16 MiB) covers the whole small file
+[ "$t3" = "$TWO" ] \
+  && say ok "T3 default tail on a small transcript → whole turn read ($t3)" \
+  || say no "T3 default tail → tools sent as: ${t3:-<no request captured>}"
+t4=$(t_run t4 "$TMP/t-big.jsonl" "abc")     # a malformed setting falls back to the default
+[ "$t4" = "$TWO" ] \
+  && say ok "T4 malformed STINGRAY_TRANSCRIPT_TAIL_BYTES → default used ($t4)" \
+  || say no "T4 malformed tail setting → tools sent as: ${t4:-<no request captured>}"
+
+# T5. A malformed record inside the turn (a transcript still being written ends
+#     on one) is still "unavailable", never "no tools were called": only the
+#     line tail -c cut may be dropped.
+{ jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}'
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Ba'; } >| "$TMP/t-broken.jsonl"
+t5=$(t_run t5 "$TMP/t-broken.jsonl" "")
+[ "$t5" = "tool list for this turn unavailable" ] \
+  && say ok "T5 malformed record in the turn → sent as unavailable" \
+  || say no "T5 malformed record in the turn → tools sent as: ${t5:-<no request captured>}"
+
+# T6/T7. One turn can carry several user records with its promptId (a queued
+#     message or a reminder joins mid-turn). When the tail starts after the real
+#     start, a later one of them must not pass as the start: the calls before it
+#     would go uncounted. T6 cuts after the start → unavailable. T7 keeps the
+#     previous turn's record in the tail → the whole turn is counted.
+{ jq -cn '{type:"user",promptId:"00000000-prev-turn-0000-000000000000",message:{content:"earlier"}}'
+  jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}'
+  for i in $(seq 1 30); do jq -cn --arg n "$i" --arg pad "$(printf 'z%.0s' $(seq 1 300))" '{type:"assistant",message:{content:[{type:"text",text:($n+$pad)}]}}'; done
+  jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"a message queued mid-turn"}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}'
+} >| "$TMP/t-multi.jsonl"
+t6=$(t_run t6 "$TMP/t-multi.jsonl" 3000)
+[ "$t6" = "tool list for this turn unavailable" ] \
+  && say ok "T6 tail starts after the turn's first record, a later one with the same promptId → unavailable" \
+  || say no "T6 later same-promptId record taken as the start → tools sent as: ${t6:-<no request captured>}"
+t7=$(t_run t7 "$TMP/t-multi.jsonl" "")
+[ "$t7" = "2 call(s): Bash, Read" ] \
+  && say ok "T7 previous turn inside the tail → whole turn counted ($t7)" \
+  || say no "T7 previous turn inside the tail → tools sent as: ${t7:-<no request captured>}"
+
+# T8. A small transcript whose first record is this turn (a session's first turn)
+#     is not cut, so its anchor is trusted without an earlier prompt.
+{ jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}'
+} >| "$TMP/t-first.jsonl"
+t8=$(t_run t8 "$TMP/t-first.jsonl" "")
+[ "$t8" = "2 call(s): Bash, Read" ] \
+  && say ok "T8 first turn of a small transcript, not cut → both calls counted ($t8)" \
+  || say no "T8 first turn of a small transcript → tools sent as: ${t8:-<no request captured>}"
+
+# T9. An unreadable transcript adds nothing to stderr (stderr becomes the block
+#     reason) and the tool list falls back to unavailable.
+cp "$TMP/t-first.jsonl" "$TMP/t-unread.jsonl"; chmod 000 "$TMP/t-unread.jsonl"
+t9=$(t_run t9 "$TMP/t-unread.jsonl" "")
+chmod 600 "$TMP/t-unread.jsonl"
+if [ "$t9" = "tool list for this turn unavailable" ] && ! grep -q "Permission denied" "$TMP/t9.err"; then
+  say ok "T9 unreadable transcript → unavailable, stderr clean"
+else
+  say no "T9 unreadable transcript → tools: ${t9:-<none>}; stderr: $(head -c 160 "$TMP/t9.err")"
+fi
+
 # ── L. The language, judged by Jev. Each case reads what the stub received, not
 #       only the exit code: which questions went out, and what they carried.
 mkl() {  # mkl <message> <session> [cwd]

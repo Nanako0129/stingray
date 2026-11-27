@@ -168,6 +168,24 @@ check "8.4 a quoted answer tag does not end a handoff → pass" "$(ho_mk "$TMP/h
 check "8.5 unreadable handoff scan → shape 3 unknown, pass" "$(ho_mk "$TMP/ho-broken.jsonl" sess-h5)" 0 "-" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
 
+# 8.6. The same unreadable last record after a handoff that WAS answered. With
+#     nothing else pending, only the parse failure keeps the count unknown;
+#     dropping the bad line instead read the count as zero and blocked.
+{ ho_send toolu_H1 win-94 "$HO_CROSS"; ho_reply win-94; printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SendMessage"'; } >"$TMP/ho-broken2.jsonl"
+check "8.6 answered handoff, then an unreadable record → unknown, pass" "$(ho_mk "$TMP/ho-broken2.jsonl" sess-h6)" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+
+# 8.7. The handoff scan reads only the transcript's tail (STINGRAY_TRANSCRIPT_TAIL_BYTES).
+#     A pending handoff that lies wholly before the tail is not counted, so with
+#     nothing else running the watch claim blocks; read whole, the file passes.
+{ ho_send toolu_H1 win-94 "$HO_CROSS"
+  for i in $(seq 1 40); do jq -cn --arg n "$i" --arg pad "$(printf 'y%.0s' $(seq 1 300))" '{type:"assistant",message:{content:[{type:"text",text:($n+$pad)}]}}'; done
+} >"$TMP/ho-old.jsonl"
+check "8.7 pending handoff older than the tail → not counted, block" "$(ho_mk "$TMP/ho-old.jsonl" sess-h7)" 2 "nothing is running" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 STINGRAY_TRANSCRIPT_TAIL_BYTES=3000 "${CLAIMS[@]}"
+check "8.8 same file, tail covering it → counted, pass" "$(ho_mk "$TMP/ho-old.jsonl" sess-h8)" 0 "-" \
+  STINGRAY=1 STINGRAY_SHAPE3=1 "${CLAIMS[@]}"
+
 # 10. No monitoring claim at all: shape 3 is silent.
 check "10 no watch declaration → pass" "$(mk "$NEUTRAL" '[]' sess-10)" 0 "-" \
   STINGRAY=1 STINGRAY_SHAPE3=1 "${ZEROS[@]}"

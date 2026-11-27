@@ -20,7 +20,18 @@
           or (((.value.message.content // []) | map(.type) | index("tool_result")) == null)
         )
       | .key ] | first ) as $start
-| if $start == null then "tool list for this turn unavailable"
+# $cut (--argjson cut true|false; stingray.sh always passes it) is true when
+# stingray.sh read only the transcript's tail and
+# the tail began inside the file. One turn can have several user records with
+# its promptId (53 of 847 turns in a 1.68 GB transcript, 2026-11-28; up to 6),
+# so a later one can look like the start when the real start lies before the
+# tail, and the calls between them would go uncounted. In a cut tail the anchor
+# counts only if some user record of another prompt comes before it: that one
+# belongs to an earlier turn, so this turn's start is inside the tail.
+| ( $cut and $start != null
+    and ([ $e[:$start][] | select(.type == "user" and .promptId != null and .promptId != $pid) ] | length) == 0
+  ) as $unsure
+| if $start == null or $unsure then "tool list for this turn unavailable"
   else
     [ $e[$start:][]
       | select(.type == "assistant")

@@ -36,6 +36,37 @@ MAX_BLOCKS="${STINGRAY_MAX_BLOCKS:-3}"
 # User input. A non-integer would make the later -ge test error out, and since
 # that test is an if condition the hook would continue with no ceiling at all.
 case "$MAX_BLOCKS" in ''|*[!0-9]*) MAX_BLOCKS=3 ;; esac
+# How much of the transcript's end is read (bytes; the tool list and the handoff
+# scan both use it). Why only the end: see the tool-list section below.
+TAIL_BYTES="${STINGRAY_TRANSCRIPT_TAIL_BYTES:-16777216}"
+case "$TAIL_BYTES" in ''|*[!0-9]*) TAIL_BYTES=16777216 ;; esac
+# 1 byte to 999 GB; "00", 0 and 20-digit values (which overflow the shell's
+# integer tests) take the default too.
+{ [ "${#TAIL_BYTES}" -le 12 ] && [ "$TAIL_BYTES" -gt 0 ]; } 2>/dev/null || TAIL_BYTES=16777216
+tail_cut() {  # tail_cut <file>: prints true when the file is longer than TAIL_BYTES (the tail starts inside it), else false
+  # The braces make 2>/dev/null cover the < redirection too, so an unreadable
+  # file adds nothing to stderr (stderr becomes the block reason).
+  local size; size=$({ wc -c < "$1"; } 2>/dev/null | tr -d ' ')
+  case "$size" in ''|*[!0-9]*) echo false ;; *) [ "$size" -gt "$TAIL_BYTES" ] && echo true || echo false ;; esac
+}
+tail_records() {  # tail_records <file> [true|false]: the file's last TAIL_BYTES, whole records only
+  # When the file is longer than TAIL_BYTES, tail -c starts inside a record, so
+  # exactly that first line is dropped. Every other line goes through as it is:
+  # a malformed record anywhere else (a transcript still being written ends on
+  # one) still makes the jq that reads it fail, which the callers turn into
+  # "unknown", never into "none".
+  # The second argument is the caller's tail_cut answer, so a caller that also
+  # tells jq whether the tail was cut uses one measurement for both (the file
+  # grows between two separate measurements).
+  local cut="${2:-}"
+  [ -r "$1" ] || return 1
+  case "$cut" in true|false) ;; *) cut=$(tail_cut "$1") ;; esac
+  if [ "$cut" = true ]; then
+    tail -c "$TAIL_BYTES" "$1" | sed 1d
+  else
+    cat "$1"
+  fi
+}
 [ "$MAX_BLOCKS" -ge 1 ] 2>/dev/null || MAX_BLOCKS=3
 STATE_DIR="${STINGRAY_STATE_DIR:-${XDG_STATE_HOME:-${HOME:-}/.local/state}/stingray}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -339,8 +370,14 @@ if [ "$shape3_on" = "1" ] && \
   elif [ "$running" -ge 0 ] && [ -f "$transcript_file" ]; then
     # A scan that fails leaves the count unknown, not zero: an unreadable file or
     # a record jq cannot parse must not turn a pending handoff into a block.
+    # Only the tail is scanned (tail_records, near the top, shared with the tool
+    # list): on a 1.68 GB transcript under load 23 the whole-file scan took
+    # 14.5 s, past the hook's 10-second timeout, and the 16 MiB tail took 2.6 s
+    # (2026-11-28). A handoff older than the tail is not counted; in that
+    # transcript the six it dropped were stale ones from days before.
     if handoffs=$(set -o pipefail
-        perl -ne 'print if /"SendMessage"|another Claude session|cross-session-message/' "$transcript_file" 2>/dev/null \
+        tail_records "$transcript_file" 2>/dev/null \
+        | perl -ne 'print if /"SendMessage"|another Claude session|cross-session-message/' 2>/dev/null \
         | jq -rs -f "$HERE/handoffs.jq" 2>/dev/null); then
       [ -n "$handoffs" ] && running=$((running + $(printf '%s\n' "$handoffs" | grep -c .)))
     else
@@ -468,10 +505,23 @@ lang_text=""
 # say so in the payload rather than inventing "no tools" — that value decides
 # shape 1. See turn-tools.jq for why promptId cannot filter assistant records.
 tools="tool list for this turn unavailable"
+#
+# Only the last STINGRAY_TRANSCRIPT_TAIL_BYTES of the transcript are read (16 MiB
+# by default). Slurping the whole file stopped the hook on long sessions: on a
+# 1.68 GB transcript (2026-11-28) `jq -rs` over the file ran past the 10-second
+# hook timeout, so the hook was killed before it judged anything, and that
+# session logged no decision for a day and a half while replies in the wrong
+# language went through. The same tail took 0.94 s and 46 MB. tail_records drops
+# only the record tail -c cut; a turn that started before the tail has no anchor
+# in it and gives "unavailable", the same fail-safe as a missing transcript, and
+# a malformed record elsewhere still fails jq and gives "unavailable" as before.
 transcript=$(j '.transcript_path')
 prompt_id=$(j '.prompt_id')
 if [ -f "$transcript" ] && [ -f "$HERE/turn-tools.jq" ] && [ -n "$prompt_id" ]; then
-  t=$(jq -rs --arg pid "$prompt_id" -f "$HERE/turn-tools.jq" "$transcript" 2>/dev/null)
+  cut=$(tail_cut "$transcript")
+  t=$(set -o pipefail
+      tail_records "$transcript" "$cut" 2>/dev/null \
+      | jq -rs --arg pid "$prompt_id" --argjson cut "$cut" -f "$HERE/turn-tools.jq" 2>/dev/null) || t=""
   [ -n "$t" ] && tools="$t"
 fi
 
