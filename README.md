@@ -362,7 +362,7 @@ This budget covers healthy endpoints. When an endpoint hangs, execution waits un
 
 With `STINGRAY_SHAPE3=1` or `STINGRAY_LANG=1` alone, every turn with something to ask about makes this round trip too, where until 0.2.0 or 0.3.0 respectively it made none. A request carrying one question took 0.68–1.03s across 12 calls, measured by calling the endpoint directly with the same request shape rather than at hook position; through the shipped hook, 0.70–0.99s. With several switches on, their questions share one request, adding no round trip.
 
-With `STINGRAY_SHAPE3=1` the hook also reads the transcript for handoffs, locally and before the request: 0.32–0.72s on a 55 MB transcript at load average 14.
+With `STINGRAY_SHAPE3=1` the hook also reads the transcript for handoffs, locally and before the request. It reads only the last `STINGRAY_TRANSCRIPT_TAIL_BYTES` (16 MiB): 2.6 s for that tail of a 1.68 GB transcript at load average 23, where the whole file had taken 14.5 s. (Before 0.3.10 it read the whole file: 0.32–0.72 s on a 55 MB transcript at load average 14.)
 
 ## Loop protection
 

@@ -355,7 +355,7 @@ TypeSafe 的資料處理位於美國境內，也未聲明資料保留期限。�
 
 只開 `STINGRAY_SHAPE3=1` 或 `STINGRAY_LANG=1` 時，每一輪只要有東西要問，也會多這一次往返；在 0.3.0、0.2.0 以前則分別完全沒有。只帶一個題目的請求在 12 次呼叫中耗時 0.68–1.03 秒──這是直接用相同格式的請求打端點量的，不是在 hook 執行點量的；透過出貨的 hook 則是 0.70–0.99 秒。開了多個開關時，各自的題目共用同一次請求，不會多一次往返。
 
-開了 `STINGRAY_SHAPE3=1` 時，hook 還會在本機、送出請求之前讀 transcript 找交辦：55 MB 的 transcript 在 load average 14 下花 0.32–0.72 秒。
+開了 `STINGRAY_SHAPE3=1` 時，hook 還會在本機、送出請求之前讀 transcript 找交辦，只讀最後 `STINGRAY_TRANSCRIPT_TAIL_BYTES`（16 MiB）：1.68 GB 的 transcript 在 load average 23 下讀這段尾端花 2.6 秒，整份讀則要 14.5 秒。（0.3.10 以前讀整份：55 MB 的 transcript 在 load average 14 下花 0.32–0.72 秒。）
 
 ## 迴圈防護
 

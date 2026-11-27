@@ -275,6 +275,16 @@ t4=$(t_run t4 "$TMP/t-big.jsonl" "abc")     # a malformed setting falls back to 
   && say ok "T4 malformed STINGRAY_TRANSCRIPT_TAIL_BYTES → default used ($t4)" \
   || say no "T4 malformed tail setting → tools sent as: ${t4:-<no request captured>}"
 
+# T5. A malformed record inside the turn (a transcript still being written ends
+#     on one) is still "unavailable", never "no tools were called": only the
+#     line tail -c cut may be dropped.
+{ jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}'
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Ba'; } >| "$TMP/t-broken.jsonl"
+t5=$(t_run t5 "$TMP/t-broken.jsonl" "")
+[ "$t5" = "tool list for this turn unavailable" ] \
+  && say ok "T5 malformed record in the turn → sent as unavailable" \
+  || say no "T5 malformed record in the turn → tools sent as: ${t5:-<no request captured>}"
+
 # ── L. The language, judged by Jev. Each case reads what the stub received, not
 #       only the exit code: which questions went out, and what they carried.
 mkl() {  # mkl <message> <session> [cwd]
