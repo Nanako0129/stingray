@@ -243,6 +243,9 @@ t_transcript() {  # t_transcript <file> <filler records>
     jq -cn --arg pad "$(printf 'x%.0s' $(seq 1 400))" --arg n "$i" \
       '{type:"assistant",message:{content:[{type:"text",text:($n+$pad)}]}}' >> "$1"
   done
+  # the previous turn ends just before this one, as in a real transcript; a cut
+  # tail must show some other prompt's record before this turn's start (T6)
+  jq -cn '{type:"user",promptId:"00000000-prev-turn-0000-000000000000",message:{content:"earlier"}}' >> "$1"
   jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}' >> "$1"
   jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}' >> "$1"
   jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}' >> "$1"
@@ -284,6 +287,27 @@ t5=$(t_run t5 "$TMP/t-broken.jsonl" "")
 [ "$t5" = "tool list for this turn unavailable" ] \
   && say ok "T5 malformed record in the turn → sent as unavailable" \
   || say no "T5 malformed record in the turn → tools sent as: ${t5:-<no request captured>}"
+
+# T6/T7. One turn can carry several user records with its promptId (a queued
+#     message or a reminder joins mid-turn). When the tail starts after the real
+#     start, a later one of them must not pass as the start: the calls before it
+#     would go uncounted. T6 cuts after the start → unavailable. T7 keeps the
+#     previous turn's record in the tail → the whole turn is counted.
+{ jq -cn '{type:"user",promptId:"00000000-prev-turn-0000-000000000000",message:{content:"earlier"}}'
+  jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}'
+  for i in $(seq 1 30); do jq -cn --arg n "$i" --arg pad "$(printf 'z%.0s' $(seq 1 300))" '{type:"assistant",message:{content:[{type:"text",text:($n+$pad)}]}}'; done
+  jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"a message queued mid-turn"}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}'
+} >| "$TMP/t-multi.jsonl"
+t6=$(t_run t6 "$TMP/t-multi.jsonl" 3000)
+[ "$t6" = "tool list for this turn unavailable" ] \
+  && say ok "T6 tail starts after the turn's first record, a later one with the same promptId → unavailable" \
+  || say no "T6 later same-promptId record taken as the start → tools sent as: ${t6:-<no request captured>}"
+t7=$(t_run t7 "$TMP/t-multi.jsonl" "")
+[ "$t7" = "2 call(s): Bash, Read" ] \
+  && say ok "T7 previous turn inside the tail → whole turn counted ($t7)" \
+  || say no "T7 previous turn inside the tail → tools sent as: ${t7:-<no request captured>}"
 
 # ── L. The language, judged by Jev. Each case reads what the stub received, not
 #       only the exit code: which questions went out, and what they carried.

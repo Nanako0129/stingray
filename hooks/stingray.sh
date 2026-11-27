@@ -43,6 +43,10 @@ case "$TAIL_BYTES" in ''|*[!0-9]*) TAIL_BYTES=16777216 ;; esac
 # 1 byte to 999 GB; "00", 0 and 20-digit values (which overflow the shell's
 # integer tests) take the default too.
 { [ "${#TAIL_BYTES}" -le 12 ] && [ "$TAIL_BYTES" -gt 0 ]; } 2>/dev/null || TAIL_BYTES=16777216
+tail_cut() {  # tail_cut <file>: prints true when tail_records <file> starts inside the file
+  local size; size=$(wc -c < "$1" 2>/dev/null | tr -d ' ')
+  case "$size" in ''|*[!0-9]*) echo false ;; *) [ "$size" -gt "$TAIL_BYTES" ] && echo true || echo false ;; esac
+}
 tail_records() {  # tail_records <file>: the file's last TAIL_BYTES, whole records only
   # When the file is longer than TAIL_BYTES, tail -c starts inside a record, so
   # exactly that first line is dropped. Every other line goes through as it is:
@@ -511,7 +515,7 @@ prompt_id=$(j '.prompt_id')
 if [ -f "$transcript" ] && [ -f "$HERE/turn-tools.jq" ] && [ -n "$prompt_id" ]; then
   t=$(set -o pipefail
       tail_records "$transcript" 2>/dev/null \
-      | jq -rs --arg pid "$prompt_id" -f "$HERE/turn-tools.jq" 2>/dev/null) || t=""
+      | jq -rs --arg pid "$prompt_id" --argjson cut "$(tail_cut "$transcript")" -f "$HERE/turn-tools.jq" 2>/dev/null) || t=""
   [ -n "$t" ] && tools="$t"
 fi
 
