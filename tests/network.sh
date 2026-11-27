@@ -309,6 +309,28 @@ t7=$(t_run t7 "$TMP/t-multi.jsonl" "")
   && say ok "T7 previous turn inside the tail → whole turn counted ($t7)" \
   || say no "T7 previous turn inside the tail → tools sent as: ${t7:-<no request captured>}"
 
+# T8. A small transcript whose first record is this turn (a session's first turn)
+#     is not cut, so its anchor is trusted without an earlier prompt.
+{ jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}'
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}'
+} >| "$TMP/t-first.jsonl"
+t8=$(t_run t8 "$TMP/t-first.jsonl" "")
+[ "$t8" = "2 call(s): Bash, Read" ] \
+  && say ok "T8 first turn of a small transcript, not cut → both calls counted ($t8)" \
+  || say no "T8 first turn of a small transcript → tools sent as: ${t8:-<no request captured>}"
+
+# T9. An unreadable transcript adds nothing to stderr (stderr becomes the block
+#     reason) and the tool list falls back to unavailable.
+cp "$TMP/t-first.jsonl" "$TMP/t-unread.jsonl"; chmod 000 "$TMP/t-unread.jsonl"
+t9=$(t_run t9 "$TMP/t-unread.jsonl" "")
+chmod 600 "$TMP/t-unread.jsonl"
+if [ "$t9" = "tool list for this turn unavailable" ] && ! grep -q "Permission denied" "$TMP/t9.err"; then
+  say ok "T9 unreadable transcript → unavailable, stderr clean"
+else
+  say no "T9 unreadable transcript → tools: ${t9:-<none>}; stderr: $(head -c 160 "$TMP/t9.err")"
+fi
+
 # ── L. The language, judged by Jev. Each case reads what the stub received, not
 #       only the exit code: which questions went out, and what they carried.
 mkl() {  # mkl <message> <session> [cwd]

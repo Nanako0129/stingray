@@ -43,20 +43,25 @@ case "$TAIL_BYTES" in ''|*[!0-9]*) TAIL_BYTES=16777216 ;; esac
 # 1 byte to 999 GB; "00", 0 and 20-digit values (which overflow the shell's
 # integer tests) take the default too.
 { [ "${#TAIL_BYTES}" -le 12 ] && [ "$TAIL_BYTES" -gt 0 ]; } 2>/dev/null || TAIL_BYTES=16777216
-tail_cut() {  # tail_cut <file>: prints true when tail_records <file> starts inside the file
-  local size; size=$(wc -c < "$1" 2>/dev/null | tr -d ' ')
+tail_cut() {  # tail_cut <file>: prints true when the file is longer than TAIL_BYTES (the tail starts inside it), else false
+  # The braces make 2>/dev/null cover the < redirection too, so an unreadable
+  # file adds nothing to stderr (stderr becomes the block reason).
+  local size; size=$({ wc -c < "$1"; } 2>/dev/null | tr -d ' ')
   case "$size" in ''|*[!0-9]*) echo false ;; *) [ "$size" -gt "$TAIL_BYTES" ] && echo true || echo false ;; esac
 }
-tail_records() {  # tail_records <file>: the file's last TAIL_BYTES, whole records only
+tail_records() {  # tail_records <file> [true|false]: the file's last TAIL_BYTES, whole records only
   # When the file is longer than TAIL_BYTES, tail -c starts inside a record, so
   # exactly that first line is dropped. Every other line goes through as it is:
   # a malformed record anywhere else (a transcript still being written ends on
   # one) still makes the jq that reads it fail, which the callers turn into
   # "unknown", never into "none".
-  local size
-  size=$(wc -c < "$1" 2>/dev/null | tr -d ' ') || return 1
-  case "$size" in ''|*[!0-9]*) return 1 ;; esac
-  if [ "$size" -gt "$TAIL_BYTES" ]; then
+  # The second argument is the caller's tail_cut answer, so a caller that also
+  # tells jq whether the tail was cut uses one measurement for both (the file
+  # grows between two separate measurements).
+  local cut="${2:-}"
+  [ -r "$1" ] || return 1
+  case "$cut" in true|false) ;; *) cut=$(tail_cut "$1") ;; esac
+  if [ "$cut" = true ]; then
     tail -c "$TAIL_BYTES" "$1" | sed 1d
   else
     cat "$1"
@@ -513,9 +518,10 @@ tools="tool list for this turn unavailable"
 transcript=$(j '.transcript_path')
 prompt_id=$(j '.prompt_id')
 if [ -f "$transcript" ] && [ -f "$HERE/turn-tools.jq" ] && [ -n "$prompt_id" ]; then
+  cut=$(tail_cut "$transcript")
   t=$(set -o pipefail
-      tail_records "$transcript" 2>/dev/null \
-      | jq -rs --arg pid "$prompt_id" --argjson cut "$(tail_cut "$transcript")" -f "$HERE/turn-tools.jq" 2>/dev/null) || t=""
+      tail_records "$transcript" "$cut" 2>/dev/null \
+      | jq -rs --arg pid "$prompt_id" --argjson cut "$cut" -f "$HERE/turn-tools.jq" 2>/dev/null) || t=""
   [ -n "$t" ] && tools="$t"
 fi
 
