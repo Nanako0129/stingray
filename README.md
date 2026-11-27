@@ -255,7 +255,7 @@ Precedence and execution rules:
 
 The smallest configuration is `STINGRAY_SHAPE3=1` alone: one question per turn, about whether the reply promised a watch. When something is running in the background, a second one (`watch_mismatch`) rides in the same request, carrying the tool list and background statuses as well, and is logged even while `STINGRAY_SHAPE3_JUDGE` is off.
 
-Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 in a row), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
+Additional configuration options: `STINGRAY_TAU` (0.5), `STINGRAY_TIMEOUT` (6s), `STINGRAY_MAX_BLOCKS` (3 in a row), `STINGRAY_STATE_DIR` (`~/.local/state/stingray`), `STINGRAY_REDACT_WORDS` (extra terms to mask), `STINGRAY_TRANSCRIPT_TAIL_BYTES` (16 MiB: how much of the transcript's end the tool list and the handoff scan read; reading the whole file ran past the 10-second hook timeout on a 1.68 GB transcript, so the hook judged nothing in that session; a turn that began before this tail is sent as "tool list unavailable", and an older handoff is not counted), and `STINGRAY_JEV_MODEL` (`jev-1.13.0`, pinned to prevent unannounced classifier changes).
 
 ## What leaves your machine
 

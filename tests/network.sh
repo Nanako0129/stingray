@@ -230,6 +230,51 @@ b7_bg=$(jq -r '[.questions[].instructions.background] | unique | join("|")' "$TM
   && say ok "B7 absent background_tasks → sent as unavailable, not as empty" \
   || say no "B7 absent background_tasks → background sent as: ${b7_bg:-<no request captured>}"
 
+# ── T. The tool list comes from the tail of the transcript only. Slurping the
+#       whole file ran past the hook timeout on a 1.68 GB transcript, so the hook
+#       was killed and judged nothing. Each case reads the body the hook sent.
+#       Filler records come first; the turn (its user record with this
+#       prompt_id, then two tool calls) is last. The tail is set small enough to
+#       cut the filler in the middle of a line.
+T_PID="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+t_transcript() {  # t_transcript <file> <filler records>
+  : >| "$1"
+  for i in $(seq 1 "$2"); do
+    jq -cn --arg pad "$(printf 'x%.0s' $(seq 1 400))" --arg n "$i" \
+      '{type:"assistant",message:{content:[{type:"text",text:($n+$pad)}]}}' >> "$1"
+  done
+  jq -cn --arg pid "$T_PID" '{type:"user",promptId:$pid,message:{content:"do it"}}' >> "$1"
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash"}]}}' >> "$1"
+  jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Read"}]}}' >> "$1"
+}
+t_run() {  # t_run <label> <transcript> <tail bytes or ""> ; prints the tools field sent
+  rm -f "$TMP/captured-record"; start_stub record
+  ( export STINGRAY_STATE_DIR="$TMP/st-$1" STINGRAY_SHADOW=1 TYPESAFE_API_KEY=dummy \
+           STINGRAY_ENDPOINT="http://127.0.0.1:$PORT/v1/systemone"
+    [ -n "$3" ] && export STINGRAY_TRANSCRIPT_TAIL_BYTES="$3"
+    mk "$SYNTHETIC" | jq -c --arg t "$2" '.transcript_path = $t' | "$HOOK_SH" "$HOOK" >/dev/null 2>"$TMP/$1.err" )
+  kill "$STUB_PID" 2>/dev/null; STUB_PID=
+  jq -r '[.questions[].instructions.tools // empty] | unique | join("|")' "$TMP/captured-record" 2>/dev/null | head -1
+}
+t_transcript "$TMP/t-big.jsonl" 60          # about 26 KB of filler before the turn
+TWO="2 call(s): Bash, Read"
+t1=$(t_run t1 "$TMP/t-big.jsonl" 4000)      # tail cuts a filler line; the turn is inside it
+[ "$t1" = "$TWO" ] \
+  && say ok "T1 tail cuts mid-line, turn inside it → tools read from the tail ($t1)" \
+  || say no "T1 tail cuts mid-line → tools sent as: ${t1:-<no request captured>}"
+t2=$(t_run t2 "$TMP/t-big.jsonl" 100)       # tail ends inside the turn: its user record is cut off
+[ "$t2" = "tool list for this turn unavailable" ] \
+  && say ok "T2 turn starts before the tail → sent as unavailable, not as no tools" \
+  || say no "T2 turn starts before the tail → tools sent as: ${t2:-<no request captured>}"
+t3=$(t_run t3 "$TMP/t-big.jsonl" "")        # shipped default (16 MiB) covers the whole small file
+[ "$t3" = "$TWO" ] \
+  && say ok "T3 default tail on a small transcript → whole turn read ($t3)" \
+  || say no "T3 default tail → tools sent as: ${t3:-<no request captured>}"
+t4=$(t_run t4 "$TMP/t-big.jsonl" "abc")     # a malformed setting falls back to the default
+[ "$t4" = "$TWO" ] \
+  && say ok "T4 malformed STINGRAY_TRANSCRIPT_TAIL_BYTES → default used ($t4)" \
+  || say no "T4 malformed tail setting → tools sent as: ${t4:-<no request captured>}"
+
 # ── L. The language, judged by Jev. Each case reads what the stub received, not
 #       only the exit code: which questions went out, and what they carried.
 mkl() {  # mkl <message> <session> [cwd]

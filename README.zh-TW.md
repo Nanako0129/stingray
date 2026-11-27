@@ -248,7 +248,7 @@ command -v jq || sudo apt install jq  # Debian/Ubuntu
 
 最小的設定是單獨開 `STINGRAY_SHAPE3=1`：每一輪一個題目，問回覆有沒有承諾要盯著什麼。背景有東西在跑時，同一次請求會再帶第二題（`watch_mismatch`），而且連同工具清單與背景狀態一起送出；即使 `STINGRAY_SHAPE3_JUDGE` 沒開，也會問、也會記錄。
 
-其餘參數設定：`STINGRAY_TAU`（0.5）、`STINGRAY_TIMEOUT`（6 秒）、`STINGRAY_MAX_BLOCKS`（連續上限 3 次）、`STINGRAY_STATE_DIR`（`~/.local/state/stingray`）、`STINGRAY_REDACT_WORDS`（額外指定遮蔽字串），以及 `STINGRAY_JEV_MODEL`（`jev-1.13.0`，釘死版本以避免分類器無預警變更）。
+其餘參數設定：`STINGRAY_TAU`（0.5）、`STINGRAY_TIMEOUT`（6 秒）、`STINGRAY_MAX_BLOCKS`（連續上限 3 次）、`STINGRAY_STATE_DIR`（`~/.local/state/stingray`）、`STINGRAY_REDACT_WORDS`（額外指定遮蔽字串）、`STINGRAY_TRANSCRIPT_TAIL_BYTES`（16 MiB：工具清單與交接掃描只讀對話紀錄最後這麼多位元組；整份讀進來時，1.68 GB 的紀錄超過 hook 的 10 秒逾時，那個 session 完全沒被檢查；比這段更早開始的那一輪送「工具清單無法取得」，更早的交接不計入），以及 `STINGRAY_JEV_MODEL`（`jev-1.13.0`，釘死版本以避免分類器無預警變更）。
 
 ## 什麼東西會離開你的電腦
 
